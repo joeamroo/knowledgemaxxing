@@ -1,0 +1,22 @@
+[
+  {
+    "header": "Chrome",
+    "title": "Visited Why you should start a blog",
+    "titleUrl": "https://www.google.com/url?q=https%3A%2F%2Fguzey.com%2Fwhy-blog%2F&usg=xyz",
+    "time": "2023-11-14T22:13:20.000Z",
+    "products": ["Chrome"]
+  },
+  {
+    "header": "Search",
+    "title": "Searched for best essays on ambition",
+    "titleUrl": "https://www.google.com/search?q=best+essays+on+ambition",
+    "time": "2023-11-15T10:00:00.000Z",
+    "products": ["Search"]
+  },
+  {
+    "header": "Gemini Apps",
+    "title": "Prompted what should I read to understand progress studies",
+    "time": "2024-02-01T08:30:00.000Z",
+    "products": ["Gemini Apps"]
+  }
+]

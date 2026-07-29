@@ -1,0 +1,107 @@
+{
+  "data": {
+    "bookmark_timeline_v2": {
+      "timeline": {
+        "instructions": [
+          {
+            "type": "TimelineAddEntries",
+            "entries": [
+              {
+                "entryId": "tweet-1750000000000000001",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "1750000000000000001",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "legacy": {
+                                "screen_name": "visakanv",
+                                "name": "Visakan Veerasamy"
+                              }
+                            }
+                          }
+                        },
+                        "legacy": {
+                          "full_text": "people sharing contradictory advice pairs: work hard vs take it easy, focus vs explore, commit vs keep options open. the resolution is always context",
+                          "created_at": "Mon Jan 15 10:00:00 +0000 2024",
+                          "conversation_id_str": "1750000000000000001",
+                          "entities": {
+                            "urls": [],
+                            "media": []
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "entryId": "tweet-1750000000000000002",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "1750000000000000002",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "legacy": {
+                                "screen_name": "patio11",
+                                "name": "Patrick McKenzie"
+                              }
+                            }
+                          }
+                        },
+                        "note_tweet": {
+                          "note_tweet_results": {
+                            "result": {
+                              "text": "A very long untruncated note tweet about the intricacies of payment systems, salary negotiation, and why you should charge more. Full text preserved beyond 280 characters thanks to the GraphQL payload."
+                            }
+                          }
+                        },
+                        "legacy": {
+                          "full_text": "A very long untruncated note tweet about the intricacies of payment sy…",
+                          "created_at": "Tue Feb 20 15:30:00 +0000 2024",
+                          "conversation_id_str": "1749999999999999999",
+                          "entities": {
+                            "urls": [
+                              {
+                                "url": "https://t.co/short",
+                                "expanded_url": "https://www.kalzumeus.com/2012/01/23/salary-negotiation/"
+                              }
+                            ],
+                            "media": [
+                              {"type": "photo"}
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "entryId": "cursor-bottom-9999",
+                "content": {
+                  "entryType": "TimelineTimelineCursor",
+                  "cursorType": "Bottom",
+                  "value": "HBaAwLDN pretend-cursor-token"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

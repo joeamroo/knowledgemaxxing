@@ -1,0 +1,19 @@
+[
+  {
+    "uuid": "abcd-1234",
+    "name": "Essay hunting",
+    "created_at": "2024-03-01T12:00:00Z",
+    "chat_messages": [
+      {
+        "sender": "human",
+        "text": "Find me that essay about slack in systems",
+        "created_at": "2024-03-01T12:00:01Z"
+      },
+      {
+        "sender": "assistant",
+        "text": "You may be thinking of Studies on Slack: https://slatestarcodex.com/2020/05/12/studies-on-slack/",
+        "created_at": "2024-03-01T12:00:10Z"
+      }
+    ]
+  }
+]

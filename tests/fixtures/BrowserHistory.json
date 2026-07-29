@@ -1,0 +1,23 @@
+{
+  "Browser History": [
+    {
+      "page_transition": "LINK",
+      "title": "Why you should start a blog",
+      "url": "https://guzey.com/why-blog/?utm_source=twitter",
+      "client_id": "abc",
+      "time_usec": 1700000000000000
+    },
+    {
+      "page_transition": "TYPED",
+      "title": "Gwern",
+      "url": "https://gwern.net/",
+      "time_usec": 1700000100000000
+    },
+    {
+      "page_transition": "AUTO_SUBFRAME",
+      "title": "ad iframe",
+      "url": "https://ads.example.com/frame",
+      "time_usec": 1700000200000000
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "roots": {
+    "bookmark_bar": {
+      "children": [
+        {
+          "date_added": "13217370610000000",
+          "name": "Paul Graham essays",
+          "type": "url",
+          "url": "http://www.paulgraham.com/articles.html"
+        },
+        {
+          "children": [
+            {
+              "date_added": "13217370620000000",
+              "name": "Nintil",
+              "type": "url",
+              "url": "https://nintil.com/"
+            }
+          ],
+          "date_added": "13217370600000000",
+          "name": "Blogs",
+          "type": "folder"
+        }
+      ],
+      "name": "Bookmarks bar",
+      "type": "folder"
+    },
+    "other": {
+      "children": [],
+      "name": "Other bookmarks",
+      "type": "folder"
+    }
+  },
+  "version": 1
+}

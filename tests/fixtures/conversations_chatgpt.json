@@ -1,0 +1,30 @@
+[
+  {
+    "title": "Reading recommendations",
+    "create_time": 1700000000.5,
+    "conversation_id": "conv-123",
+    "mapping": {
+      "root": {"id": "root", "message": null, "parent": null, "children": ["m1"]},
+      "m1": {
+        "id": "m1",
+        "message": {
+          "author": {"role": "user"},
+          "content": {"content_type": "text", "parts": ["What should I read on progress studies? Any reading list?"]},
+          "create_time": 1700000001.0
+        },
+        "parent": "root",
+        "children": ["m2"]
+      },
+      "m2": {
+        "id": "m2",
+        "message": {
+          "author": {"role": "assistant"},
+          "content": {"content_type": "text", "parts": ["Start with https://rootsofprogress.org and the essay at https://guzey.com/why-blog/"]},
+          "create_time": 1700000002.0
+        },
+        "parent": "m1",
+        "children": []
+      }
+    }
+  }
+]

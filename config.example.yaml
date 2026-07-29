@@ -1,0 +1,70 @@
+# km configuration. All paths support ~ expansion.
+
+search:
+  roots:
+    - ~/Downloads
+    - ~/Documents
+    - ~/Desktop
+  extra_roots: []          # add any additional folders to scan
+  exclude_dirs:
+    - node_modules
+    - .git
+    - .venv
+    - venv
+    - env
+    - site-packages
+    - __pycache__
+    - Library
+    - vendor
+    - dist
+    - build
+  icloud_root: ~/Library/Mobile Documents/com~apple~CloudDocs
+  scan_icloud: true
+  scan_gdrive_mount: true  # ~/Library/CloudStorage/GoogleDrive-*/
+
+usernames:
+  x: ""                  # your X/Twitter handle, without @
+  reddit: ""
+  hn: ""
+
+# Column mapping overrides for chrome_export files flagged needs-mapping.
+# Keyed by file path; values name the url/title/time columns.
+column_mappings: {}
+# example:
+#   /Users/you/Downloads/weird-history.csv:
+#     url: "Page Address"
+#     title: "Name"
+#     time: "LastVisited"
+#     time_format: "iso"   # iso | seconds | millis | webkit
+
+domains_file: domains.yaml
+
+classification:
+  model: claude-sonnet-4-6
+  batch_size: 40
+  prompt_version: v2
+  categories:
+    - anecdote
+    - interesting_fact
+    - thread
+    - joke
+    - link_to_essay
+    - quote
+    - tool_or_resource
+    - hot_take
+    - contrarian
+    - list
+    - aphorism
+    - natural_law
+    - personal
+    - other
+
+embedding:
+  backend: local           # local | api
+  model: BAAI/bge-small-en-v1.5   # or BAAI/bge-m3 for quality
+  api_provider: ""         # voyage | openai, only if backend: api
+
+grok_export_path: ""       # path to a Grok JSON/markdown export if you have one
+
+network:
+  resolve_links: false     # resolve t.co/bit.ly short links (cached)

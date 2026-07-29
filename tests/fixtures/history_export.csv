@@ -1,0 +1,4 @@
+order,id,date,time,title,url,visitCount,typedCount,transition
+1,101,2024-05-01,12:30:45,Why you should start a blog,https://guzey.com/why-blog/,3,1,link
+2,102,2024-05-02,09:15:00,Gwern on spaced repetition,https://gwern.net/spaced-repetition,1,0,link
+3,103,2024-05-03,18:00:00,,ftp://not-a-web-url.com/x,1,0,typed
