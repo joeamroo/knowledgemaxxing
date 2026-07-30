@@ -663,7 +663,7 @@ def sync(
     from datetime import datetime, timezone
 
     from km.db import get_db
-    from km.discover.scanner import scan_chrome_live, scan_roots
+    from km.discover.scanner import scan_chrome_live, scan_roots, scan_safari_live
     from km.ingest import ingest_manifest
     from km.models import Manifest
 
@@ -672,8 +672,8 @@ def sync(
     stamp = datetime.now(timezone.utc).isoformat()
     new_items = 0
 
-    console.print("[bold]km sync[/bold] · live Chrome history")
-    live = scan_chrome_live()
+    console.print("[bold]km sync[/bold] · live browser history (Chrome + Safari incl. iPhone)")
+    live = scan_chrome_live() + [e for e in scan_safari_live() if e.status == "ready"]
     if live:
         report = ingest_manifest(conn, Manifest(generated_at=stamp, entries=live), cfg)
         new_items += report.total_items

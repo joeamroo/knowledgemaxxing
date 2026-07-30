@@ -170,6 +170,23 @@ def scan_chrome_live() -> list[ManifestEntry]:
     return entries
 
 
+def scan_safari_live() -> list[ManifestEntry]:
+    """Safari's History.db, which iCloud fills with iPhone/iPad visits too.
+
+    Needs Full Disk Access for the terminal; unreadable means not granted.
+    """
+    history = Path.home() / "Library/Safari/History.db"
+    if not history.is_file():
+        return []
+    try:
+        with open(history, "rb") as fh:
+            fh.read(16)
+    except (PermissionError, OSError):
+        return [_entry(history, "safari_history", status="unsupported",
+                       note="grant Full Disk Access to your terminal to read Safari history")]
+    return [_entry(history, "safari_history", note="includes iPhone visits synced via iCloud")]
+
+
 def scan_icloud(cfg: Config) -> list[ManifestEntry]:
     """Scan iCloud Drive, flagging evicted .<name>.icloud placeholders."""
     root = Path(cfg.search.icloud_root).expanduser()

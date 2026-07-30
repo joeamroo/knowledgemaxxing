@@ -56,3 +56,24 @@ def test_seed_blogs_join_candidates():
     domains = candidate_domains(conn)
     assert "gwern.net" in domains and "nabeelqu.co" in domains
     assert len(domains) >= len(SEED_BLOGS) - 5
+
+
+def test_safari_history_parse(tmp_path):
+    import sqlite3 as s
+
+    from km.parsers.safari_history import parse_path
+
+    db = tmp_path / "History.db"
+    conn = s.connect(db)
+    conn.execute("CREATE TABLE history_items(id INTEGER PRIMARY KEY, url TEXT)")
+    conn.execute("""CREATE TABLE history_visits(id INTEGER PRIMARY KEY,
+        history_item INTEGER, visit_time REAL, title TEXT, origin INTEGER)""")
+    conn.execute("INSERT INTO history_items VALUES (1, 'https://gwern.net/spaced-repetition')")
+    # 2025-01-01 12:00 UTC in Cocoa seconds
+    conn.execute("INSERT INTO history_visits VALUES (1, 1, 757425600.0, 'Spaced Repetition', 1)")
+    conn.commit(); conn.close()
+    items = list(parse_path(db))
+    assert len(items) == 1
+    assert items[0].kind == "visit"
+    assert items[0].created_at.year == 2025
+    assert "iphone" in items[0].occurrence_detail

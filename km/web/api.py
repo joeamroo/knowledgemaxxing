@@ -402,7 +402,7 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         from datetime import datetime, timezone
 
         from km.db import get_db as _get_db
-        from km.discover.scanner import scan_chrome_live, scan_roots
+        from km.discover.scanner import scan_chrome_live, scan_roots, scan_safari_live
         from km.extract.essays import mark_essays
         from km.extract.reading_lists import mark_reading_lists
         from km.extract.score import compute_scores
@@ -414,7 +414,7 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         stamp = datetime.now(timezone.utc).isoformat()
         new_items = 0
         try:
-            live = scan_chrome_live()
+            live = scan_chrome_live() + [e for e in scan_safari_live() if e.status == "ready"]
             if live:
                 new_items += ingest_manifest(conn, Manifest(generated_at=stamp, entries=live), cfg).total_items
             ready = [e for e in scan_roots(cfg) if e.status == "ready" and e.source_type != "generic"]

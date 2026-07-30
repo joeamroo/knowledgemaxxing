@@ -91,15 +91,21 @@ def ingest_manifest(
 
         ctx = ParseContext(entry=entry, config=cfg)
         try:
-            if entry.source_type == "chrome_live_history":
+            if entry.source_type in ("chrome_live_history", "safari_history"):
                 path = Path(entry.path)
                 file_hash = _hash_file(path)
                 source_id, existed = add_source(conn, entry.source_type, entry.path, file_hash)
                 if existed:
                     report.already.append(entry.display_path)
                     continue
+                if entry.source_type == "safari_history":
+                    from km.parsers import safari_history
+
+                    live_parse = safari_history.parse_path
+                else:
+                    live_parse = chrome_history.parse_path
                 count = 0
-                for item in chrome_history.parse_path(path, ctx):
+                for item in live_parse(path, ctx):
                     upsert_item(conn, item, source_id)
                     count += 1
             else:
