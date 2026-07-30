@@ -15,11 +15,16 @@ from km.timeutil import infer_timestamp
 from km.urls import canonicalize, domain_of
 
 
-def items_from_api_json(payload: dict | list) -> list[NormalizedItem]:
-    """Pull saved posts out of a reader API response, defensively.
+def items_from_api_json(
+    payload: dict | list, kind: str = "saved_post",
+    occurrence_kind: str = "", label: str = "saved",
+) -> list[NormalizedItem]:
+    """Pull posts out of a reader API response, defensively.
 
     Substack shuffles its internal API shapes, so we look for any dicts
-    that look like posts (canonical_url/title) wherever they nest.
+    that look like posts (canonical_url/title) wherever they nest. The
+    same walker serves saved, liked, and restacked surfaces; only the
+    item kind and labels change.
     """
     found: list[NormalizedItem] = []
 
@@ -44,14 +49,15 @@ def items_from_api_json(payload: dict | list) -> list[NormalizedItem]:
                 )
                 found.append(
                     NormalizedItem(
-                        kind="saved_post",
+                        kind=kind,
                         dedupe_key=f"url:{canonicalize(url)}",
                         url=url,
                         title=title,
                         author=author,
                         created_at=infer_timestamp(saved_at),
                         raw={"publication": pub_name, "substack_id": node.get("id")},
-                        occurrence_detail=f"substack saved: {pub_name or domain_of(url)}",
+                        occurrence_kind=occurrence_kind or kind,
+                        occurrence_detail=f"substack {label}: {pub_name or domain_of(url)}",
                     )
                 )
                 return  # don't descend into a matched post
@@ -102,38 +108,34 @@ class SubstackScraper(BaseScraper):
 
     MAX_IDLE_SCROLLS = 6
 
-    def run(self) -> int:
-        from km.scrapers.session import session_valid
-
-        if not session_valid(self.context, "substack"):
-            self.stop("no valid Substack session; run km login")
-
+    def _scrape_surface(self, page, url: str, kind: str, occurrence_kind: str,
+                        label: str, dom_fallback: bool = False) -> int:
+        """Scroll one reader surface, intercepting its API responses."""
         collected: dict[str, NormalizedItem] = {}
         response_count = 0
 
         def on_response(response) -> None:
             nonlocal response_count
-            url = response.url
-            if "substack.com" not in url or "api" not in url:
-                return
-            if not any(marker in url for marker in ("saved", "library", "reader")):
+            r_url = response.url
+            if "substack.com" not in r_url or "api" not in r_url:
                 return
             try:
                 payload = response.json()
             except Exception:
                 return
             response_count += 1
-            self.save_raw(f"api-{response_count}.json", payload)
-            for item in items_from_api_json(payload):
+            self.save_raw(f"{label}-api-{response_count}.json", payload)
+            for item in items_from_api_json(payload, kind, occurrence_kind, label):
                 collected.setdefault(item.dedupe_key, item)
 
-        page = self.context.new_page()
         page.on("response", on_response)
         try:
-            page.goto("https://substack.com/saved", wait_until="domcontentloaded")
+            page.goto(url, wait_until="domcontentloaded")
             if "sign-in" in page.url or "login" in page.url:
                 self.stop("Substack redirected to sign-in; run km login")
             page.wait_for_timeout(3000)
+            if page.url.rstrip("/").endswith("substack.com") and not url.rstrip("/").endswith("substack.com"):
+                return 0  # surface does not exist for this account; bounced home
 
             # pointer must sit over the feed or wheel events scroll nothing
             viewport = page.viewport_size or {"width": 1280, "height": 900}
@@ -152,14 +154,49 @@ class SubstackScraper(BaseScraper):
                     idle = 0
                     last_count = len(collected)
 
-            if not collected:  # API interception found nothing: DOM fallback
+            if not collected and dom_fallback:
                 html = page.content()
-                self.save_raw("saved-dom.html", html)
+                self.save_raw(f"{label}-dom.html", html)
                 for item in items_from_dom(html):
                     collected.setdefault(item.dedupe_key, item)
 
             for item in collected.values():
                 self.save_item(item)
+        finally:
+            page.remove_listener("response", on_response)
+        return len(collected)
+
+    def run(self) -> int:
+        from km.scrapers.session import session_valid
+
+        if not session_valid(self.context, "substack"):
+            self.stop("no valid Substack session; run km login")
+
+        page = self.context.new_page()
+        try:
+            self._scrape_surface(page, "https://substack.com/saved",
+                                 "saved_post", "saved_post", "saved", dom_fallback=True)
+            # likes and restacks: reader surfaces vary by account age, so
+            # try candidates and accept whichever loads
+            for url in ("https://substack.com/liked", "https://substack.com/library/liked"):
+                if self._scrape_surface(page, url, "like", "like", "liked"):
+                    break
+            handle = None
+            try:
+                handle = page.evaluate(
+                    """async () => { try {
+                         const r = await fetch('https://substack.com/api/v1/user/self',
+                                               {credentials: 'include'});
+                         const j = await r.json();
+                         return j.handle || j.username || null;
+                       } catch (e) { return null } }""")
+            except Exception:
+                pass
+            if handle:
+                for url in (f"https://substack.com/@{handle}/restacks",
+                            f"https://substack.com/@{handle}/notes"):
+                    if self._scrape_surface(page, url, "saved_post", "restack", "restacked"):
+                        break
         finally:
             page.close()
         return self.items_saved

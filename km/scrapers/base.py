@@ -83,7 +83,7 @@ class BaseScraper:
             self._raw_dir = self.cfg.data_dir / "raw" / self.name / stamp
             self._raw_dir.mkdir(parents=True, exist_ok=True)
         path = self._raw_dir / name
-        if isinstance(content, dict):
+        if isinstance(content, (dict, list)):
             path.write_text(json.dumps(content, indent=2, default=str))
         elif isinstance(content, bytes):
             path.write_bytes(content)
