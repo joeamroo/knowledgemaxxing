@@ -26,6 +26,33 @@ from km.urls import canonicalize
 _FEED_PATHS = ("/feed", "/rss", "/feed.xml", "/rss.xml", "/atom.xml", "/index.xml")
 _UA = {"User-Agent": "km-feed/1.0 (personal local reading feed)"}
 
+# A starter canon of blogs worth following even before your own history
+# suggests them. Merged into feed discovery alongside your real trail;
+# extend or override with `feeds.seed_blogs` in config.yaml.
+SEED_BLOGS = [
+    "paulgraham.com", "gwern.net", "astralcodexten.com", "slatestarcodex.com",
+    "marginalrevolution.com", "stratechery.com", "nabeelqu.co", "guzey.com",
+    "patrickcollison.com", "danluu.com", "jsomers.net", "sive.rs",
+    "applieddivinitystudies.com", "thezvi.substack.com", "worksinprogress.co",
+    "commoncog.com", "fs.blog", "waitbutwhy.com", "meltingasphalt.com",
+    "kk.org", "calnewport.com", "benkuhn.net", "juliagalef.com",
+    "overcomingbias.com", "putanumonit.com", "experimental-history.com",
+    "rootsofprogress.org", "nintil.com", "slimemoldtimemold.com",
+]
+
+# Lists of lists: pages whose whole point is pointing at great reading.
+# km enrich mines their links into your essay pool.
+CURATED_LISTS = [
+    "https://nabeelqu.co/reading-lists",
+    "https://nabeelqu.co/advice",
+    "https://patrickcollison.com/bookshelf",
+    "https://guzey.com/favorite/blog-posts/",
+    "https://gwern.net/about",
+    "https://www.benkuhn.net/weeklyessays/",
+    "https://aaronsw.com/weblog/fullarchive",
+    "https://slimemoldtimemold.com/links/",
+]
+
 
 def _http_client():
     import httpx
@@ -126,7 +153,45 @@ def candidate_domains(conn: sqlite3.Connection, limit: int = 60) -> list[str]:
 
     for entry in recurring_domains(conn, min_months=6):
         push(entry["domain"])
+    for domain in SEED_BLOGS:
+        push(domain)
     return out
+
+
+def enrich_from_curated_lists(conn: sqlite3.Connection, limit_pages: int = 10) -> dict:
+    """Mine the curated lists-of-lists into the essay pool.
+
+    Each list page's content links become 'linked' items (reading-list
+    marked), which flow into the feed's buried-gems bucket and the Essays
+    collection once heuristics run.
+    """
+    from km.extract.link_expansion import extract_outbound_links
+
+    source_id, _ = add_source(conn, "curated_lists", "km-enrich", "curated")
+    stats = {"pages": 0, "links": 0}
+    with _http_client() as client:
+        for list_url in CURATED_LISTS[:limit_pages]:
+            try:
+                r = client.get(list_url)
+                if r.status_code != 200:
+                    continue
+            except Exception:
+                continue
+            stats["pages"] += 1
+            for link in extract_outbound_links(r.text, list_url):
+                canonical = canonicalize(link["url"])
+                item_id = upsert_item(conn, NormalizedItem(
+                    kind="linked",
+                    dedupe_key=f"url:{canonical}",
+                    url=link["url"], title=link.get("title") or link["url"],
+                    occurrence_kind="linked_from",
+                    occurrence_detail=f"curated:{list_url}",
+                ), source_id)
+                conn.execute(
+                    "UPDATE items SET in_reading_list=1 WHERE id=?", (item_id,))
+                stats["links"] += 1
+    conn.commit()
+    return stats
 
 
 def refresh_feeds(conn: sqlite3.Connection, max_new_probes: int = 15) -> dict:
@@ -222,6 +287,13 @@ def build_daily_feed(conn: sqlite3.Connection, date: Optional[str] = None, size:
             AND i.id NOT IN (SELECT item_id FROM occurrences WHERE kind='visit')
             AND i.id NOT IN (SELECT item_id FROM daily_feed)
             GROUP BY i.id ORDER BY RANDOM() LIMIT 20""", (), "buried in your saves", 1)
+    # web discoveries: essays found because you loved something similar
+    take("""SELECT i.id FROM items i JOIN occurrences o ON o.item_id=i.id
+            WHERE o.kind='web_discovery' AND i.url IS NOT NULL
+            AND i.id NOT IN (SELECT item_id FROM occurrences WHERE kind='visit')
+            AND i.id NOT IN (SELECT item_id FROM daily_feed)
+            GROUP BY i.id ORDER BY RANDOM() LIMIT 10""",
+         (), "similar to something you loved", 1)
 
     for position, (item_id, reason) in enumerate(picks[:size]):
         conn.execute(

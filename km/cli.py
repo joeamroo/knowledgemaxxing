@@ -797,6 +797,87 @@ def feed(
     out.write_text("\n".join(lines) + "\n")
 
 
+@app.command(name="discover-similar")
+def discover_similar(
+    target: str = typer.Argument(..., help="Item id (from km search) or a URL"),
+    k: int = typer.Option(8, "--k"),
+    ai: bool = typer.Option(False, "--ai", help="Let Claude browse the web (needs credits)"),
+    ingest: bool = typer.Option(True, "--ingest/--no-ingest", help="Save picks into the archive"),
+) -> None:
+    """Find essays like this one, out on the live web.
+
+    Local mode ranks the essay's link neighborhood with your embeddings;
+    --ai has Claude search the web and explain each pick."""
+    from km.db import get_db
+    from km.discover_web import discover_ai, discover_local, ingest_discoveries
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    if target.startswith("http"):
+        row = conn.execute("SELECT id FROM items WHERE url=? OR canonical_url=?",
+                           (target, target)).fetchone()
+        if not row:
+            from km.models import NormalizedItem
+            from km.store import add_source, upsert_item
+            from km.urls import canonicalize
+
+            sid, _ = add_source(conn, "manual", "cli", "manual")
+            item_id = upsert_item(conn, NormalizedItem(
+                kind="linked", dedupe_key=f"url:{canonicalize(target)}", url=target), sid)
+        else:
+            item_id = row["id"]
+    else:
+        item_id = int(target)
+    strategy = "ai" if ai else "local"
+    try:
+        with console.status("reading the essay and walking its neighborhood..."
+                            if not ai else "Claude is browsing..."):
+            picks = (discover_ai(conn, cfg, item_id, k) if ai
+                     else discover_local(conn, cfg, item_id, k))
+    except Exception as exc:
+        if "credit balance" in str(exc):
+            console.print("[red]Anthropic API credit balance too low.[/red]")
+        else:
+            console.print(f"[red]discovery failed:[/red] {exc}")
+        raise typer.Exit(1)
+    if not picks:
+        console.print("[yellow]Nothing similar found; try --ai or a richer essay.[/yellow]")
+        return
+    for pick in picks:
+        sim = f" · {pick['similarity']:.2f}" if pick.get("similarity") else ""
+        console.print(f"[bold]{pick['title'][:90]}[/bold]{sim}")
+        if pick.get("why"):
+            console.print(f"  [dim]{pick['why']}[/dim]")
+        console.print(f"  [dim]{pick['url']}[/dim]")
+    if ingest:
+        saved = ingest_discoveries(conn, item_id, picks, strategy)
+        console.print(f"\n[green]{saved} discoveries saved[/green]; they can appear in your feed.")
+
+
+@app.command()
+def enrich() -> None:
+    """Grow the reading pool: probe the seed-blog canon for feeds and mine
+    curated lists-of-lists (nabeelqu, Collison, guzey...) into your essays."""
+    from km.db import get_db
+    from km.extract.essays import mark_essays
+    from km.extract.score import compute_scores
+    from km.feed import enrich_from_curated_lists, refresh_feeds
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    with console.status("mining curated reading lists..."):
+        stats = enrich_from_curated_lists(conn)
+    console.print(f"[green]{stats['links']} links[/green] mined from {stats['pages']} curated list pages")
+    with console.status("probing seed blogs for feeds..."):
+        feed_stats = refresh_feeds(conn, max_new_probes=40)
+    console.print(
+        f"[green]{feed_stats['discovered']} feeds discovered[/green], "
+        f"{feed_stats['new_posts']} fresh posts pulled")
+    mark_essays(conn, cfg.load_domains())
+    compute_scores(conn)
+    console.print("Essay heuristics refreshed. Your feed just got a much deeper bench.")
+
+
 task_app = typer.Typer(help="The lock-in list: what you said you'd do.")
 app.add_typer(task_app, name="task")
 

@@ -1,5 +1,10 @@
 # km (knowledgemaxxing)
 
+**Every rabbit hole you ever went down, searchable.**
+
+Find out more, watch the demo, and get the two-minute quickstart at
+**[montroselabs.ai/km](https://montroselabs.ai/km/)**.
+
 Local-first tool that mines your digital exhaust (browser history,
 Twitter/X, Reddit, Substack, Hacker News, AI chat exports) into one
 searchable, categorized knowledge base: a SQLite database, clean

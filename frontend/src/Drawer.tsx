@@ -14,6 +14,26 @@ export function Drawer({ itemId, onClose, onChanged, onOpen }: {
     queryKey: ["item", itemId],
     queryFn: () => fetchItem(itemId),
   });
+  const [discovering, setDiscovering] = useState(false);
+  const [discovered, setDiscovered] = useState<
+    { url: string; title: string; why?: string; similarity?: number }[] | null>(null);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+
+  const discover = async () => {
+    setDiscovering(true);
+    setDiscoverError(null);
+    try {
+      const res = await fetch(`/api/items/${itemId}/discover`, { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.detail ?? "discovery failed");
+      setDiscovered(body.picks ?? []);
+    } catch (e: unknown) {
+      setDiscoverError(e instanceof Error ? e.message : "discovery failed");
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
   const { data: similar } = useQuery({
     queryKey: ["similar", itemId],
     queryFn: () =>
@@ -130,6 +150,43 @@ export function Drawer({ itemId, onClose, onChanged, onOpen }: {
               ))}
             </ul>
           </>
+        )}
+
+        {item.url && (
+          <div className="mb-5">
+            <button onClick={discover} disabled={discovering}
+              className="btn-quiet rounded-md px-3 py-1.5 text-[12px] disabled:opacity-50">
+              {discovering ? "walking the web..." : "Find similar on the web ✦"}
+            </button>
+            {discoverError && (
+              <div className="mt-2 text-[12px]" style={{ color: "#c96b5a" }}>{discoverError}</div>
+            )}
+            {discovered && (
+              <ul className="mt-2 space-y-1.5">
+                {discovered.length === 0 && (
+                  <li className="text-[12.5px]" style={{ color: "var(--ink-faint)" }}>
+                    nothing close enough found this time
+                  </li>
+                )}
+                {discovered.map((d, i) => (
+                  <li key={i} className="rounded px-2 py-1.5 text-[12.5px]"
+                    style={{ background: "var(--bg-raised)" }}>
+                    <a href={d.url} target="_blank" rel="noreferrer" className="hover:underline">
+                      {d.title.slice(0, 100)}
+                    </a>
+                    {d.similarity != null && (
+                      <span className="font-mono-data ml-2" style={{ color: "var(--ink-faint)" }}>
+                        {d.similarity.toFixed(2)}
+                      </span>
+                    )}
+                    {d.why && (
+                      <div style={{ color: "var(--ink-faint)" }}>{d.why}</div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
 
         <div className="smallcaps mb-1.5">Marginalia</div>

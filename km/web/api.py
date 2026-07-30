@@ -215,6 +215,23 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
                 out.append(d)
         return {"items": out}
 
+    @router.post("/items/{item_id}/discover")
+    def discover(item_id: int, strategy: str = "local", k: int = 6):
+        """Find similar essays on the live web (local embeddings or Claude)."""
+        from km.discover_web import discover_ai, discover_local, ingest_discoveries
+
+        conn = get_conn()
+        try:
+            picks = (discover_ai(conn, cfg, item_id, k) if strategy == "ai"
+                     else discover_local(conn, cfg, item_id, k))
+        except Exception as exc:
+            if "credit balance" in str(exc):
+                raise HTTPException(402, "Anthropic API credit balance too low")
+            raise HTTPException(502, f"discovery failed: {exc}")
+        if picks:
+            ingest_discoveries(conn, item_id, picks, strategy)
+        return {"picks": picks}
+
     @router.patch("/items/{item_id}")
     def patch_item(item_id: int, patch: PatchItem):
         conn = get_conn()
