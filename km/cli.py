@@ -521,14 +521,18 @@ def search(
     domain: Optional[str] = typer.Option(None, "--domain"),
     limit: int = typer.Option(20, "--limit"),
 ) -> None:
-    """Keyword (FTS5) search over the knowledge base."""
+    """Keyword (FTS5) search. Supports site:/kind:/cat:/before:/after: operators."""
     from km.db import get_db
     from km.search.hybrid import fetch_results
-    from km.search.keyword import keyword_search
+    from km.search.keyword import keyword_search, parse_query
 
     cfg = _cfg()
     conn = get_db(cfg.db_path)
-    scored = keyword_search(conn, query, _parse_filters(category, source, domain), limit)
+    query, filters = parse_query(query, _parse_filters(category, source, domain))
+    if not query.strip():
+        console.print("[yellow]Only operators given; add some words to search for.[/yellow]")
+        raise typer.Exit(1)
+    scored = keyword_search(conn, query, filters, limit)
     _print_results(fetch_results(conn, [(i, -r) for i, r in scored]))
 
 
@@ -636,11 +640,235 @@ def ui(
 
     cfg = _cfg()
     console.print(f"[bold]km ui[/bold] at http://127.0.0.1:{port}")
+    import threading
+    import webbrowser
+
+    threading.Timer(1.2, webbrowser.open, [f"http://127.0.0.1:{port}"]).start()
     uvicorn.run(create_app(cfg), host="127.0.0.1", port=port, log_level="warning")
 
 
 @app.command()
-def digest() -> None:
+def sync(
+    scrape: bool = typer.Option(False, "--scrape", help="Also run authenticated scrapers (opens a browser)"),
+    embed_new: bool = typer.Option(True, "--embed/--no-embed", help="Embed new items after ingest"),
+) -> None:
+    """Continuous ingestion: pull fresh data from every local source, one pass.
+
+    Re-ingests live Chrome history, auto-ingests newly discovered export
+    files of recognized types (generic sniffed files still need manual
+    approval), syncs Apple Notes, optionally runs scrapers, embeds what's
+    new, and refreshes heuristics. Schedule it with km sync-schedule.
+    """
+    from datetime import datetime, timezone
+
+    from km.db import get_db
+    from km.discover.scanner import scan_chrome_live, scan_roots
+    from km.ingest import ingest_manifest
+    from km.models import Manifest
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    stamp = datetime.now(timezone.utc).isoformat()
+    new_items = 0
+
+    console.print("[bold]km sync[/bold] · live Chrome history")
+    live = scan_chrome_live()
+    if live:
+        report = ingest_manifest(conn, Manifest(generated_at=stamp, entries=live), cfg)
+        new_items += report.total_items
+        console.print(f"  {report.total_items:,} new items from {len(report.ingested)} profile(s)")
+
+    console.print("[bold]km sync[/bold] · new export files on disk")
+    found = scan_roots(cfg)
+    ready = [e for e in found if e.status == "ready" and e.source_type != "generic"]
+    if ready:
+        report = ingest_manifest(conn, Manifest(generated_at=stamp, entries=ready), cfg)
+        new_items += report.total_items
+        fresh = [p for p, n in report.ingested if n > 0]
+        if fresh:
+            console.print(f"  {report.total_items:,} new items from {len(fresh)} new file(s)")
+        else:
+            console.print("  nothing new")
+    generic = [e for e in found if e.source_type == "generic"]
+    if generic:
+        console.print(f"  [yellow]{len(generic)} generic file(s) still need manual approval (km ingest --include-generic)[/yellow]")
+
+    console.print("[bold]km sync[/bold] · Apple Notes")
+    try:
+        from km.sources.apple_notes import sync_notes
+
+        synced, locked = sync_notes(conn, cfg)
+        console.print(f"  {synced} notes synced" + (f", {locked} locked skipped" if locked else ""))
+    except Exception as exc:
+        console.print(f"  [yellow]skipped: {exc}[/yellow]")
+
+    if scrape:
+        from km.scrapers.base import CleanStop
+        from km.scrapers.session import browser_context
+
+        console.print("[bold]km sync[/bold] · scrapers")
+        try:
+            with browser_context(headed=True) as context:
+                from km.scrapers.hn import HnScraper
+                from km.scrapers.reddit_saved import RedditScraper
+                from km.scrapers.substack_saved import SubstackScraper
+                from km.scrapers.x_bookmarks import XBookmarksScraper
+
+                for cls in (HnScraper, RedditScraper, SubstackScraper, XBookmarksScraper):
+                    try:
+                        count = cls(conn, cfg, context).run()
+                        new_items += count
+                        console.print(f"  {cls.__name__}: {count} saved")
+                    except CleanStop as exc:
+                        console.print(f"  [yellow]{cls.__name__}: {exc}[/yellow]")
+        except Exception as exc:
+            console.print(f"  [yellow]scrapers skipped: {exc}[/yellow]")
+
+    if embed_new:
+        console.print("[bold]km sync[/bold] · embeddings")
+        try:
+            from km.embedding.embedder import get_embedder
+            from km.embedding.store import embed_pending
+
+            count = embed_pending(conn, get_embedder(cfg))
+            console.print(f"  {count} new chunks embedded")
+        except Exception as exc:
+            console.print(f"  [yellow]skipped: {exc}[/yellow]")
+
+    console.print("[bold]km sync[/bold] · heuristics")
+    from km.extract.essays import mark_essays
+    from km.extract.reading_lists import mark_reading_lists
+    from km.extract.score import compute_scores
+    from km.extract.threads import mark_threads
+    from km.extract.wisdom import run_wisdom_pass
+
+    mark_essays(conn, cfg.load_domains())
+    mark_threads(conn)
+    mark_reading_lists(conn)
+    compute_scores(conn)
+    run_wisdom_pass(conn)
+    console.print(f"\n[green]sync complete:[/green] {new_items:,} new items this pass")
+
+
+@app.command(name="sync-schedule")
+def sync_schedule(
+    hours: int = typer.Option(12, "--hours", help="Run every N hours"),
+) -> None:
+    """Install a launchd job that runs km sync on a schedule. The archive
+    keeps itself current: Chrome history, new exports, Apple Notes, embeddings."""
+    import subprocess
+    from pathlib import Path as P
+
+    cfg = _cfg()
+    plist_path = P.home() / "Library/LaunchAgents/com.km.sync.plist"
+    km_bin = cfg.project_root / ".venv" / "bin" / "km"
+    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.km.sync</string>
+  <key>ProgramArguments</key>
+  <array><string>{km_bin}</string><string>sync</string></array>
+  <key>WorkingDirectory</key><string>{cfg.project_root}</string>
+  <key>StartInterval</key><integer>{hours * 3600}</integer>
+  <key>StandardOutPath</key><string>/tmp/km-sync.log</string>
+  <key>StandardErrorPath</key><string>/tmp/km-sync.log</string>
+</dict></plist>
+"""
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_text(plist)
+    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+    result = subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True, text=True)
+    if result.returncode == 0:
+        console.print(f"[green]Installed:[/green] km sync every {hours}h ({plist_path})")
+        console.print("Log: /tmp/km-sync.log · remove with: launchctl unload " + str(plist_path))
+    else:
+        console.print(f"[red]launchctl load failed:[/red] {result.stderr}")
+
+
+@app.command()
+def reflect(
+    days: int = typer.Option(30, "--days", help="How many recent days to read"),
+    model: Optional[str] = typer.Option(None, "--model"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the cost confirmation"),
+) -> None:
+    """AI reflection on your recent traces: what preoccupied you, what you missed."""
+    from km.classify.client import get_client
+    from km.classify.reflect import estimate_reflect_cost, gather_recent, run_reflect
+    from km.db import get_db
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    use_model = model or cfg.classification.model
+    pack = gather_recent(conn, days)
+    cost = estimate_reflect_cost(pack)
+    console.print(
+        f"[bold]Reflection on the last {days} days:[/bold] "
+        f"{len(pack['searches'])} searches, {len(pack['notes'])} notes, "
+        f"{len(pack['chats'])} chats · rough cost ${cost:.2f} ({use_model})"
+    )
+    if not yes and not typer.confirm("Send these traces (text only) for reflection?"):
+        console.print("Aborted, nothing was sent.")
+        return
+    if not cfg.anthropic_api_key:
+        console.print("[red]ANTHROPIC_API_KEY not set (put it in .env).[/red]")
+        raise typer.Exit(1)
+    try:
+        with console.status("reading your last few weeks..."):
+            text = run_reflect(conn, get_client(), use_model, days)
+    except Exception as exc:
+        if "credit balance" in str(exc):
+            console.print("[red]Anthropic API credit balance too low; add credits and re-run.[/red]")
+        else:
+            console.print(f"[red]Reflection failed:[/red] {exc}")
+        raise typer.Exit(1)
+    from datetime import datetime, timezone
+
+    out_dir = cfg.exports_dir / "reflections"
+    out_dir.mkdir(exist_ok=True)
+    out = out_dir / f"reflection-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.md"
+    out.write_text(f"# Reflection · last {days} days\n\n{text}\n")
+    console.print()
+    console.print(text)
+    console.print(f"\n[green]saved[/green] {out}")
+
+
+@app.command(name="digest-schedule")
+def digest_schedule(
+    hour: int = typer.Option(9, "--hour", help="Local hour (0-23) for the daily digest"),
+) -> None:
+    """Install a launchd job posting the daily digest as a macOS notification."""
+    import subprocess
+    from pathlib import Path as P
+
+    cfg = _cfg()
+    plist_path = P.home() / "Library/LaunchAgents/com.km.daily-digest.plist"
+    km_bin = cfg.project_root / ".venv" / "bin" / "km"
+    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.km.daily-digest</string>
+  <key>ProgramArguments</key>
+  <array><string>{km_bin}</string><string>digest</string><string>--notify</string></array>
+  <key>WorkingDirectory</key><string>{cfg.project_root}</string>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>{hour}</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/km-digest.log</string>
+  <key>StandardErrorPath</key><string>/tmp/km-digest.log</string>
+</dict></plist>
+"""
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_text(plist)
+    subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+    result = subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True, text=True)
+    if result.returncode == 0:
+        console.print(f"[green]Installed:[/green] daily digest notification at {hour:02d}:00 ({plist_path})")
+    else:
+        console.print(f"[red]launchctl load failed:[/red] {result.stderr}")
+
+
+@app.command()
+def digest(
+    notify: bool = typer.Option(False, "--notify", help="Also post a macOS notification"),
+) -> None:
     """Today's memory mix: on-this-day items plus resurfaced gems."""
     from km.db import get_db
     from km.extract.reports import daily_digest
@@ -648,6 +876,16 @@ def digest() -> None:
     cfg = _cfg()
     conn = get_db(cfg.db_path)
     d = daily_digest(conn)
+    if notify:
+        import subprocess
+
+        first = (d["on_this_day"][0]["label"][:120] if d["on_this_day"]
+                 else (d["gems"][0]["title"][:120] if d["gems"] else "your archive is quiet today"))
+        body = first.replace('"', "'").replace("\\", "")
+        subprocess.run([
+            "osascript", "-e",
+            f'display notification "{body}" with title "km · on this day"',
+        ], capture_output=True)
     console.print(f"[bold]km digest · {d['date']}[/bold]\n")
     if d["on_this_day"]:
         console.print("[bold]On this day[/bold]")
@@ -795,6 +1033,52 @@ def rewind(
         f"{len(data['best_tweets'])} tweets that landed"
     )
     console.print(f"[green]wrote[/green] {out}")
+
+
+@app.command()
+def wrapped(
+    year: Optional[str] = typer.Argument(None, help="Year, e.g. 2025. Default: last full year."),
+    open_page: bool = typer.Option(True, "--open/--no-open", help="Open the page in your browser"),
+    ai: bool = typer.Option(False, "--ai", help="Add a Claude-written closing paragraph"),
+    model: Optional[str] = typer.Option(None, "--model"),
+) -> None:
+    """A shareable year-in-review page (like a music wrapped, but it's your mind)."""
+    import webbrowser
+    from datetime import datetime, timezone
+
+    from km.db import get_db
+    from km.exporters.wrapped import ai_epilogue, export_wrapped, wrapped_data
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    year = year or str(datetime.now(timezone.utc).year - 1)
+    out = cfg.exports_dir / f"wrapped-{year}.html"
+    epilogue = None
+    if ai:
+        if not cfg.anthropic_api_key:
+            console.print("[red]--ai needs ANTHROPIC_API_KEY in .env.[/red]")
+            raise typer.Exit(1)
+        from km.classify.client import get_client
+
+        try:
+            with console.status("asking Claude what the year meant..."):
+                epilogue = ai_epilogue(wrapped_data(conn, year), get_client(),
+                                       model or cfg.classification.model)
+        except Exception as exc:
+            if "credit balance" in str(exc):
+                console.print("[yellow]API credits empty; generating without the epilogue.[/yellow]")
+            else:
+                console.print(f"[yellow]epilogue skipped: {exc}[/yellow]")
+    data = export_wrapped(conn, year, out, epilogue=epilogue)
+    if data["total"] == 0:
+        console.print(f"[yellow]No traces found for {year}.[/yellow]")
+        raise typer.Exit(1)
+    console.print(
+        f"[green]wrote[/green] {out} ({data['total']:,} traces, "
+        f"{len(data['new_obsessions'])} new obsessions)"
+    )
+    if open_page:
+        webbrowser.open(out.as_uri())
 
 
 @app.command()

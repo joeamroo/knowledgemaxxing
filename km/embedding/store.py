@@ -104,6 +104,40 @@ def embed_pending(
     return embedded
 
 
+def similar_items(
+    conn: sqlite3.Connection, item_id: int, limit: int = 8
+) -> list[tuple[int, float]]:
+    """Nearest neighbors of an item's own embedding, excluding itself.
+
+    Uses the item's first chunk as the anchor. Returns [] when the item
+    has no embedding yet or sqlite-vec is unavailable.
+    """
+    if not try_load_sqlite_vec(conn):
+        return []
+    chunk = conn.execute(
+        "SELECT id FROM embedding_chunks WHERE item_id=? ORDER BY chunk_idx LIMIT 1",
+        (item_id,),
+    ).fetchone()
+    if not chunk:
+        return []
+    vec = conn.execute(
+        "SELECT embedding FROM vec_items WHERE rowid=?", (chunk["id"],)
+    ).fetchone()
+    if not vec:
+        return []
+    rows = conn.execute(
+        """SELECT c.item_id, min(v.distance) AS distance
+           FROM (
+             SELECT rowid, distance FROM vec_items
+             WHERE embedding MATCH ? AND k = ?
+           ) v JOIN embedding_chunks c ON c.id = v.rowid
+           WHERE c.item_id != ?
+           GROUP BY c.item_id ORDER BY distance LIMIT ?""",
+        (vec["embedding"], (limit + 1) * 4, item_id, limit),
+    ).fetchall()
+    return [(r["item_id"], r["distance"]) for r in rows]
+
+
 def vector_search(
     conn: sqlite3.Connection, query_vector: list[float], limit: int = 100
 ) -> list[tuple[int, float]]:

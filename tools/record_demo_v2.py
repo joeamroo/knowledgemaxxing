@@ -217,13 +217,14 @@ def main() -> None:
         d.pause(0.5)
 
         # scene 3: essays
-        d.say(330, 300, "The <b>essays you saved and forgot</b> live here.", hold=0.5)
-        d.click(page.locator("text=Essays").first, ms=700, settle=1.7)
+        d.click(page.locator("text=Essays").first, ms=700, settle=0.9)
+        d.say(330, 300, "The <b>essays you saved and forgot</b> live here.", hold=2.2)
         d.hush()
+        d.click(page.locator("text=Everything").first, ms=450, settle=0.5)
 
         # scene 4: wisdom
-        d.say(330, 360, "<b>Aphorisms and laws</b>, mined from your likes.", hold=0.5)
-        d.click(page.locator("text=Aphorisms").first, ms=600, settle=1.7)
+        d.click(page.locator("text=Aphorisms").first, ms=600, settle=0.9)
+        d.say(330, 360, "<b>Aphorisms and laws</b>, mined from your likes.", hold=2.2)
         d.hush()
 
         # scene 5: stats

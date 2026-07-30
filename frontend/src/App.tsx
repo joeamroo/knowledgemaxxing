@@ -335,7 +335,7 @@ export default function App() {
 
       {drawerItem !== null && (
         <Drawer itemId={drawerItem} onClose={() => setDrawerItem(null)}
-          onChanged={() => itemsQuery.refetch()} />
+          onChanged={() => itemsQuery.refetch()} onOpen={(id) => setDrawerItem(id)} />
       )}
       {askOpen && (
         <AskPanel onClose={() => setAskOpen(false)} onOpenItem={(id) => setDrawerItem(id)}

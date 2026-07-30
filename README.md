@@ -55,9 +55,15 @@ uv run km extract             # essay/thread/reading-list detection + interest s
 uv run km classify            # AI-categorize tweets (shows cost estimate first)
 uv run km embed               # local embeddings for semantic search
 uv run km export              # regenerate exports/*.md
-uv run km search "spaced repetition" --domain gwern.net
+uv run km sync                # one continuous-ingestion pass: fresh Chrome history,
+                              # new export files, Apple Notes, embeddings, heuristics
+uv run km sync-schedule       # keep the archive current automatically (every 12h)
+uv run km search "spaced repetition site:gwern.net before:2022"
 uv run km ask "tweet about contradictory advice pairs" --ai
+uv run km reflect             # AI reflection on your last 30 days (paid)
+uv run km wrapped 2025 --ai   # shareable year-in-review page with an AI epilogue
 uv run km random --category anecdote
+uv run km digest-schedule     # daily on-this-day macOS notification
 uv run km stats
 uv run km doctor              # health check: integrity, FTS sync, freshness
 uv run km timeline            # life-timeline.md + recurring-threads.md
@@ -75,9 +81,13 @@ everything saved and never opened; `questions.md` is every question ever
 typed into a search box; `rhythms.md` shows hour-of-day patterns, the
 night-owl index per month, and activity streaks.
 
+Search supports operators anywhere in the query: `site:`/`domain:`,
+`kind:`, `cat:`, `source:`, `before:YYYY[-MM[-DD]]`, `after:...`.
+
 `km discover` writes `DATA_SOURCES.md` explaining how to request every
 export you are missing. Nothing is ingested until you have reviewed
-`manifest.json`.
+`manifest.json`; `km sync` auto-ingests only recognized export types and
+still leaves generic sniffed files for manual approval.
 
 ## Obtaining your exports
 

@@ -127,6 +127,10 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
             starred, is_essay, in_reading_list,
         )
         if q:
+            from km.search.keyword import parse_query
+
+            q, filters = parse_query(q, filters)
+        if q:
             if mode in ("semantic", "hybrid"):
                 embedder = _embedder_or_none() if mode != "keyword" else None
                 scored = hybrid_search(conn, q, embedder, filters, k=cursor + page_size,
@@ -167,6 +171,23 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         if not row:
             raise HTTPException(404, "item not found")
         return _item_dict(conn, row, full=True)
+
+    @router.get("/items/{item_id}/similar")
+    def similar(item_id: int, k: int = 6):
+        conn = get_conn()
+        try:
+            from km.embedding.store import similar_items
+            hits = similar_items(conn, item_id, limit=k)
+        except Exception:
+            hits = []
+        out = []
+        for other_id, distance in hits:
+            row = conn.execute("SELECT * FROM items WHERE id=?", (other_id,)).fetchone()
+            if row:
+                d = _item_dict(conn, row)
+                d["distance"] = round(distance, 4)
+                out.append(d)
+        return {"items": out}
 
     @router.patch("/items/{item_id}")
     def patch_item(item_id: int, patch: PatchItem):

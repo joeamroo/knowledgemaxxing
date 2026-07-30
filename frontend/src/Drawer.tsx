@@ -6,12 +6,21 @@ import { CATEGORIES, CATEGORY_LABELS, KIND_LABELS, SOURCE_LABELS, catStyle } fro
 const isTweetKind = (k: string) =>
   ["like", "retweet", "own_tweet", "bookmark_tweet"].includes(k);
 
-export function Drawer({ itemId, onClose, onChanged }: {
+export function Drawer({ itemId, onClose, onChanged, onOpen }: {
   itemId: number; onClose: () => void; onChanged: () => void;
+  onOpen?: (id: number) => void;
 }) {
   const { data: item, refetch } = useQuery({
     queryKey: ["item", itemId],
     queryFn: () => fetchItem(itemId),
+  });
+  const { data: similar } = useQuery({
+    queryKey: ["similar", itemId],
+    queryFn: () =>
+      fetch(`/api/items/${itemId}/similar`).then((r) => r.json()) as Promise<{
+        items: { id: number; kind: string; title?: string; text?: string; domain?: string }[];
+      }>,
+    staleTime: 60_000,
   });
   const [note, setNote] = useState<string | null>(null);
 
@@ -101,6 +110,27 @@ export function Drawer({ itemId, onClose, onChanged }: {
             </li>
           ))}
         </ul>
+
+        {(similar?.items?.length ?? 0) > 0 && (
+          <>
+            <div className="smallcaps mb-2">More like this</div>
+            <ul className="mb-5 space-y-1">
+              {similar!.items.map((s) => (
+                <li key={s.id}>
+                  <button
+                    onClick={() => onOpen?.(s.id)}
+                    className="block w-full truncate rounded px-2 py-1.5 text-left text-[12.5px] hover:underline"
+                    style={{ background: "var(--bg-raised)" }}>
+                    <span style={{ color: "var(--ink-faint)" }}>
+                      {KIND_LABELS[s.kind] ?? s.kind} ·{" "}
+                    </span>
+                    {(s.title || s.text || "").slice(0, 110)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
 
         <div className="smallcaps mb-1.5">Marginalia</div>
         <textarea

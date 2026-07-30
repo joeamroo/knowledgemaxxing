@@ -60,6 +60,48 @@ class Filters:
         return (" AND ".join(where) if where else "1=1"), params
 
 
+_OPERATORS = ("site:", "domain:", "kind:", "cat:", "category:", "before:", "after:", "source:")
+
+
+def parse_query(query: str, filters: Optional[Filters] = None) -> tuple[str, Filters]:
+    """Pull search operators out of the query text into Filters.
+
+    Supported: site:/domain:<host>, kind:<kind>, cat:/category:<cat>,
+    source:<source>, before:<YYYY[-MM[-DD]]>, after:<YYYY[-MM[-DD]]>.
+    Explicit filters already set win over operators in the text.
+    """
+    filters = filters or Filters()
+    kept: list[str] = []
+    for token in query.split():
+        lower = token.lower()
+        op = next((o for o in _OPERATORS if lower.startswith(o) and len(token) > len(o)), None)
+        if op is None:
+            kept.append(token)
+            continue
+        value = token[len(op):]
+        if op in ("site:", "domain:") and not filters.domain:
+            filters.domain = value.lower()
+        elif op == "kind:" and not filters.kind:
+            filters.kind = value.lower()
+        elif op in ("cat:", "category:") and not filters.category:
+            filters.category = value.lower()
+        elif op == "source:" and not filters.source:
+            filters.source = value.lower()
+        elif op in ("before:", "after:"):
+            parts = value.split("-")
+            if not all(p.isdigit() for p in parts) or not (4 <= len(parts[0]) <= 4):
+                kept.append(token)
+                continue
+            if op == "after:" and not filters.date_from:
+                filters.date_from = value
+            elif op == "before:" and not filters.date_to:
+                # pad so before:2021 means before the year is over
+                filters.date_to = value + {1: "-12-31", 2: "-31", 3: ""}[len(parts)]
+        else:
+            kept.append(token)
+    return " ".join(kept), filters
+
+
 def _fts_escape(query: str) -> str:
     """Quote each term so user input never breaks FTS5 syntax.
 
