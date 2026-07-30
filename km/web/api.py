@@ -87,6 +87,32 @@ class AskRequest(BaseModel):
     domain: Optional[str] = None
 
 
+class TaskIn(BaseModel):
+    text: str
+    due: Optional[str] = None
+
+
+class TaskPatch(BaseModel):
+    status: Optional[str] = None
+    due: Optional[str] = None
+    text: Optional[str] = None
+
+
+class CollectionIn(BaseModel):
+    name: str
+    spec: dict
+
+
+class CollectionAI(BaseModel):
+    instruction: str
+
+
+class TalkIn(BaseModel):
+    persona: str = "therapist"
+    message: str
+    new_session: bool = False
+
+
 class ExportRequest(BaseModel):
     ids: list[int]
     filename: str = "selection.md"
@@ -423,15 +449,6 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         return _sync_state
 
     # ── tasks: the lock-in list ─────────────────────────────────────
-    class TaskIn(BaseModel):
-        text: str
-        due: Optional[str] = None
-
-    class TaskPatch(BaseModel):
-        status: Optional[str] = None
-        due: Optional[str] = None
-        text: Optional[str] = None
-
     @router.get("/tasks")
     def tasks(status: str = "open"):
         from km.taskdriver import list_tasks
@@ -493,10 +510,6 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         return {"ok": True}
 
     # ── smart collections: features you create by asking ───────────
-    class CollectionIn(BaseModel):
-        name: str
-        spec: dict
-
     @router.get("/collections")
     def collections():
         return {"collections": [
@@ -519,9 +532,6 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         conn.execute("DELETE FROM smart_collections WHERE id=?", (cid,))
         conn.commit()
         return {"ok": True}
-
-    class CollectionAI(BaseModel):
-        instruction: str
 
     @router.post("/collections/ai")
     def ai_collection(body: CollectionAI):
@@ -554,11 +564,6 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         return {"id": cur.lastrowid, "name": name, "spec": spec}
 
     # ── the companion: talk to your archive in the browser ──────────
-    class TalkIn(BaseModel):
-        persona: str = "therapist"
-        message: str
-        new_session: bool = False
-
     @router.get("/talk/personas")
     def personas():
         from km.classify.talk import TALK_PERSONAS
