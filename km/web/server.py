@@ -21,6 +21,18 @@ STATIC_DIR = Path(__file__).parent / "static"
 def create_app(cfg: Config) -> FastAPI:
     app = FastAPI(title="km", docs_url=None, redoc_url=None, openapi_url=None)
 
+    @app.middleware("http")
+    async def localhost_host_only(request, call_next):
+        # DNS-rebinding guard: a malicious page can point its own domain at
+        # 127.0.0.1 and read this API cross-origin. Reject any request whose
+        # Host header is not a local one.
+        host = (request.headers.get("host") or "").split(":")[0].lower()
+        if host not in ("127.0.0.1", "localhost", "[::1]", "::1", "testserver"):
+            from fastapi.responses import PlainTextResponse
+
+            return PlainTextResponse("km only answers to localhost", status_code=403)
+        return await call_next(request)
+
     # one connection per app; SQLite in WAL mode handles the UI's read-heavy load
     conn = get_db(cfg.db_path, check_same_thread=False)
     conn.execute("PRAGMA busy_timeout=5000")

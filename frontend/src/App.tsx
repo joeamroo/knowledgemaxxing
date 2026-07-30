@@ -135,7 +135,9 @@ export default function App() {
           )
         );
       } else if (e.key === "a") { e.preventDefault(); setAskOpen(true); }
-      else if (e.key === "Escape") { setDrawerItem(null); setAskOpen(false); }
+      else if (e.key === "Escape") {
+        setDrawerItem(null); setAskOpen(false); setTasksOpen(false); setTodayOpen(false);
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

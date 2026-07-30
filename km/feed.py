@@ -96,17 +96,18 @@ def candidate_domains(conn: sqlite3.Connection, limit: int = 60) -> list[str]:
     not blogs."""
     out: list[str] = []
 
+    # never probed, whatever the browsing history says
+    skip_re = re.compile(
+        r"(^i\d?\.|^cdn|\.cdn\.|^static|^img|^media\.|wp\.com$|"
+        r"porn|sex|xvideos|xnxx|xhamster|nsfw|redtube|onlyfans)")
+
     def push(domain: str):
         if domain.startswith("www."):
             domain = domain[4:]
         if (domain and domain not in out and domain not in _PLATFORM_DOMAINS
-                and "." in domain and len(out) < limit):
+                and "." in domain and not skip_re.search(domain) and len(out) < limit):
             out.append(domain)
 
-    # the feed is a morning ritual; keep obviously non-blog hosts out of it
-    skip_re = re.compile(
-        r"(^i\d?\.|^cdn|\.cdn\.|^static|^img|^media\.|wp\.com$|"
-        r"porn|sex|xvideos|xnxx|xhamster|nsfw|redtube|onlyfans)")
     for row in conn.execute(
         """SELECT domain, count(*) c FROM items
            WHERE is_essay=1 AND domain != ''
