@@ -19,7 +19,9 @@ const SOURCE_LABELS: Record<string, string> = {
   my_activity: "Google My Activity",
 };
 
-export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () => void }) {
+export function Onboarding({ onDone, onSkip, skipLabel = "skip, I'll use the CLI" }: {
+  onDone: () => void; onSkip: () => void; skipLabel?: string;
+}) {
   const [results, setResults] = useState<UploadResult[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -139,7 +141,7 @@ export function Onboarding({ onDone, onSkip }: { onDone: () => void; onSkip: () 
             Enter your archive{ingestedTotal > 0 ? ` (${ingestedTotal.toLocaleString()} items)` : ""}
           </button>
           <button onClick={onSkip} className="text-[13px]" style={{ color: "var(--ink-faint)" }}>
-            skip, I'll use the CLI
+            {skipLabel}
           </button>
         </div>
       </div>

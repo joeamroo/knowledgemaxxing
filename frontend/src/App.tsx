@@ -88,6 +88,7 @@ export default function App() {
   });
 
   const [skipOnboarding, setSkipOnboarding] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const statsQuery = useQuery({ queryKey: ["stats"], queryFn: fetchStats });
 
   useEffect(() => {
@@ -133,11 +134,16 @@ export default function App() {
   const sortGlyph = (col: string) =>
     params.sort === col ? (params.order === "asc" ? " ↑" : " ↓") : "";
 
-  if (statsQuery.data && statsQuery.data.total_items === 0 && !skipOnboarding) {
+  const firstRun = statsQuery.data && statsQuery.data.total_items === 0 && !skipOnboarding;
+  if (firstRun || showOnboarding) {
     return (
       <Onboarding
-        onDone={() => { statsQuery.refetch(); itemsQuery.refetch(); facetsQuery.refetch(); }}
-        onSkip={() => setSkipOnboarding(true)}
+        skipLabel={firstRun ? "skip, I'll use the CLI" : "back to the archive"}
+        onDone={() => {
+          statsQuery.refetch(); itemsQuery.refetch(); facetsQuery.refetch();
+          setShowOnboarding(false);
+        }}
+        onSkip={() => { setSkipOnboarding(true); setShowOnboarding(false); }}
       />
     );
   }
@@ -208,6 +214,8 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-1 border-t hairline px-3 py-2.5">
+          <SideButton title="Add archives (drag and drop exports)"
+            onClick={() => setShowOnboarding(true)} label="Add" />
           <SideButton title="Today's memory mix" onClick={() => setTodayOpen(true)} label="Today" />
           <SideButton title="Stats" active={page === "stats"}
             onClick={() => setPage(page === "stats" ? "table" : "stats")} label="Stats" />
