@@ -92,6 +92,48 @@ CREATE TABLE IF NOT EXISTS embedding_cache(
   PRIMARY KEY(item_id, model)
 );
 
+CREATE TABLE IF NOT EXISTS tasks(
+  id INTEGER PRIMARY KEY,
+  text TEXT NOT NULL,
+  due TEXT,
+  status TEXT NOT NULL DEFAULT 'open',  -- open | done | dropped
+  source TEXT,                          -- manual | note:<title> | ai
+  created_at TEXT NOT NULL,
+  completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS feeds(
+  domain TEXT PRIMARY KEY,
+  feed_url TEXT,
+  last_fetched TEXT,
+  ok INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS daily_feed(
+  date TEXT NOT NULL,
+  item_id INTEGER NOT NULL REFERENCES items(id),
+  reason TEXT,
+  position INTEGER,
+  read INTEGER DEFAULT 0,
+  PRIMARY KEY(date, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS companion_notes(
+  id INTEGER PRIMARY KEY,
+  persona TEXT NOT NULL,
+  session_file TEXT NOT NULL UNIQUE,
+  date TEXT NOT NULL,
+  summary TEXT NOT NULL,        -- what was discussed, threads, follow-ups
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS smart_collections(
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  spec TEXT NOT NULL,      -- json: {query?, mode?, filters?}
+  created_at TEXT NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
   title, text, content=items, content_rowid=id
 );

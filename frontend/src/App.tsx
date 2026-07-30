@@ -1,7 +1,10 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchFacets, fetchItems, fetchRandom, fetchStats, Item } from "./api";
+import { CompanionPage } from "./Companion";
+import { FeedPage } from "./Feed";
 import { Onboarding } from "./Onboarding";
+import { TasksPanel } from "./Tasks";
 import { AskPanel } from "./Ask";
 import { CATEGORY_LABELS, KIND_GLYPHS, KIND_LABELS, SOURCE_LABELS, catStyle } from "./categories";
 import { Drawer } from "./Drawer";
@@ -39,7 +42,7 @@ const isTweetKind = (k: string) =>
   ["like", "retweet", "own_tweet", "bookmark_tweet"].includes(k);
 
 export default function App() {
-  const [page, setPage] = useState<"table" | "stats">("table");
+  const [page, setPage] = useState<"table" | "stats" | "feed" | "companion">("table");
   const [params, setParams] = useUrlState();
   const [queryInput, setQueryInput] = useState(params.q ?? "");
   const query = useDebounced(queryInput);
@@ -89,7 +92,30 @@ export default function App() {
 
   const [skipOnboarding, setSkipOnboarding] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const statsQuery = useQuery({ queryKey: ["stats"], queryFn: fetchStats });
+  const collectionsQuery = useQuery({
+    queryKey: ["collections"],
+    queryFn: () => fetch("/api/collections").then((r) => r.json()) as Promise<{
+      collections: { id: number; name: string; spec: { query?: string; filters?: Record<string, string> } }[];
+    }>,
+  });
+
+  const runSync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    await fetch("/api/sync", { method: "POST" });
+    const poll = setInterval(async () => {
+      const s = await fetch("/api/sync/status").then((r) => r.json());
+      if (!s.running) {
+        clearInterval(poll);
+        setSyncing(false);
+        statsQuery.refetch();
+        itemsQuery.refetch();
+      }
+    }, 2500);
+  };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -159,6 +185,19 @@ export default function App() {
           <div className="smallcaps mt-1">knowledgemaxxing</div>
         </div>
 
+        <div className="mb-1 flex gap-1 px-3">
+          {([["table", "Archive"], ["feed", "Feed"], ["companion", "Companion"]] as const).map(
+            ([key, label]) => (
+              <button key={key} onClick={() => setPage(key)}
+                className="flex-1 rounded-md px-2 py-1.5 text-[12px] font-medium transition-colors"
+                style={page === key
+                  ? { background: "var(--accent)", color: "#1c1508" }
+                  : { color: "var(--ink-dim)" }}>
+                {label}
+              </button>
+            ))}
+        </div>
+
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
           <Facet title="Collections">
             <FacetRow label="Everything" active={activeFilters.length === 0 && page === "table"}
@@ -178,6 +217,39 @@ export default function App() {
             <FacetRow label="Contrarian" dotStyle={catStyle("contrarian")}
               active={params.category === "contrarian"}
               onClick={() => { setPage("table"); setFilter("category", "contrarian"); }} />
+            {(collectionsQuery.data?.collections ?? []).map((c) => (
+              <FacetRow key={c.id} label={c.name}
+                active={false}
+                onClick={() => {
+                  setPage("table");
+                  const f = c.spec.filters ?? {};
+                  setQueryInput(c.spec.query ?? "");
+                  setParams({
+                    q: c.spec.query || undefined,
+                    kind: f.kind, domain: f.domain, category: f.category,
+                    is_essay: f.is_essay ? "true" : undefined,
+                    date_from: f.date_from, date_to: f.date_to,
+                  });
+                }} />
+            ))}
+            {(query || activeFilters.length > 0) && (
+              <button
+                onClick={() => {
+                  const name = window.prompt("Name this collection:", query || "My collection");
+                  if (!name) return;
+                  fetch("/api/collections", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      name,
+                      spec: { query: query || undefined, filters: Object.fromEntries(activeFilters) },
+                    }),
+                  }).then(() => collectionsQuery.refetch());
+                }}
+                className="mt-1 w-full rounded px-2 py-1 text-left text-[11.5px]"
+                style={{ color: "var(--ink-faint)" }}>
+                + save this search as a collection
+              </button>
+            )}
           </Facet>
 
           {facetsQuery.data && (
@@ -219,6 +291,10 @@ export default function App() {
           <SideButton title="Today's memory mix" onClick={() => setTodayOpen(true)} label="Today" />
           <SideButton title="Stats" active={page === "stats"}
             onClick={() => setPage(page === "stats" ? "table" : "stats")} label="Stats" />
+          <SideButton title="Lock in: tasks, overdue first"
+            onClick={() => setTasksOpen(true)} label="Tasks" />
+          <SideButton title="Pull fresh data from everywhere (Chrome, notes, feeds)"
+            onClick={runSync} label={syncing ? "Sync…" : "Sync"} active={syncing} />
           <SideButton title="Random item (recall practice)"
             onClick={() => fetchRandom(params.category).then((it) => setDrawerItem(it.id))} label="Random" />
           <SideButton title="Toggle theme" onClick={() => setDark(!dark)} label={dark ? "Day" : "Night"} />
@@ -276,7 +352,11 @@ export default function App() {
           </div>
         )}
 
-        {page === "stats" ? (
+        {page === "feed" ? (
+          <FeedPage onOpenItem={(id) => setDrawerItem(id)} />
+        ) : page === "companion" ? (
+          <CompanionPage />
+        ) : page === "stats" ? (
           <StatsPage />
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto"
@@ -342,6 +422,7 @@ export default function App() {
           filters={{ source: params.source, category: params.category, domain: params.domain }} />
       )}
       {todayOpen && <TodayPanel onClose={() => setTodayOpen(false)} />}
+      {tasksOpen && <TasksPanel onClose={() => setTasksOpen(false)} />}
     </div>
   );
 }

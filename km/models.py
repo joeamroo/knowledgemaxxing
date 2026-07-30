@@ -23,6 +23,7 @@ ItemKind = Literal[
     "search_query",
     "note",
     "linked",
+    "feed_post",
 ]
 
 

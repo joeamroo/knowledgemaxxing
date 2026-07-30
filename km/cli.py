@@ -379,7 +379,8 @@ def mentor(
 
 @app.command()
 def talk(
-    persona: str = typer.Option("companion", "--persona", help="companion | analyst | harsh"),
+    persona: str = typer.Option("companion", "--persona",
+                                help="companion | analyst | harsh | therapist | secretary | future"),
     model: Optional[str] = typer.Option(None, "--model"),
     new: bool = typer.Option(False, "--new", help="Start a fresh session instead of resuming"),
 ) -> None:
@@ -702,6 +703,16 @@ def sync(
     except Exception as exc:
         console.print(f"  [yellow]skipped: {exc}[/yellow]")
 
+    console.print("[bold]km sync[/bold] · reading feed")
+    try:
+        from km.feed import build_daily_feed, refresh_feeds
+
+        feed_stats = refresh_feeds(conn)
+        built = build_daily_feed(conn)
+        console.print(f"  {feed_stats['new_posts']} fresh posts, today's feed has {built} pieces")
+    except Exception as exc:
+        console.print(f"  [yellow]skipped: {exc}[/yellow]")
+
     if scrape:
         from km.scrapers.base import CleanStop
         from km.scrapers.session import browser_context
@@ -748,6 +759,102 @@ def sync(
     compute_scores(conn)
     run_wisdom_pass(conn)
     console.print(f"\n[green]sync complete:[/green] {new_items:,} new items this pass")
+
+
+@app.command()
+def feed(
+    refresh: bool = typer.Option(False, "--refresh", help="Probe/fetch RSS feeds first (network)"),
+) -> None:
+    """Today's reading feed: new posts from blogs you follow + buried gems."""
+    from km.db import get_db
+    from km.feed import build_daily_feed, get_daily_feed, refresh_feeds
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    if refresh:
+        with console.status("probing feeds on your recurring domains..."):
+            stats = refresh_feeds(conn)
+        console.print(
+            f"[dim]{stats['discovered']} feeds discovered, {stats['fetched']} fetched, "
+            f"{stats['new_posts']} fresh posts[/dim]")
+    build_daily_feed(conn)
+    entries = get_daily_feed(conn)
+    if not entries:
+        console.print("[yellow]Feed is empty; try km feed --refresh after some ingestion.[/yellow]")
+        return
+    console.print(f"[bold]Today's reading · {len(entries)} pieces[/bold]\n")
+    lines = ["# Today's reading", ""]
+    for entry in entries:
+        mark = "[green]✓[/green] " if entry["read"] else "  "
+        title = entry["title"] or (entry["text"] or "")[:80] or entry["url"]
+        console.print(f"{mark}[bold]{title[:90]}[/bold]  [dim]({entry['reason']})[/dim]")
+        if entry["url"]:
+            console.print(f"   [dim]{entry['url']}[/dim]")
+        lines.append(f"- [{title}]({entry['url']}) · {entry['reason']}")
+    from datetime import datetime, timezone
+
+    out = cfg.exports_dir / f"feed-{datetime.now(timezone.utc).date().isoformat()}.md"
+    out.write_text("\n".join(lines) + "\n")
+
+
+task_app = typer.Typer(help="The lock-in list: what you said you'd do.")
+app.add_typer(task_app, name="task")
+
+
+@task_app.command("add")
+def task_add(
+    text: str = typer.Argument(...),
+    due: Optional[str] = typer.Option(None, "--due", help="YYYY-MM-DD"),
+) -> None:
+    """Add a task."""
+    from km.db import get_db
+    from km.taskdriver import add_task
+
+    cfg = _cfg()
+    task_id = add_task(get_db(cfg.db_path), text, due)
+    console.print(f"[green]#{task_id} added[/green]" + (f" · due {due}" if due else ""))
+
+
+@task_app.command("list")
+def task_list() -> None:
+    """List open tasks, overdue first."""
+    from km.db import get_db
+    from km.taskdriver import list_tasks
+
+    cfg = _cfg()
+    tasks = list_tasks(get_db(cfg.db_path))
+    if not tasks:
+        console.print("Nothing open. Suspicious.")
+        return
+    for t in tasks:
+        flag = "[red]OVERDUE[/red] " if t["overdue"] else ("[yellow]today[/yellow] " if t["due_today"] else "")
+        due = f" · due {t['due']}" if t["due"] else ""
+        console.print(f"  #{t['id']} {flag}{t['text']}{due} [dim]({t['source']})[/dim]")
+
+
+@task_app.command("done")
+def task_done(task_id: int = typer.Argument(...)) -> None:
+    """Mark a task done."""
+    from km.db import get_db
+    from km.taskdriver import set_status
+
+    set_status(get_db(_cfg().db_path), task_id, "done")
+    console.print(f"[green]#{task_id} done.[/green]")
+
+
+@task_app.command("harvest")
+def task_harvest() -> None:
+    """Mine TODO and checkbox lines out of your Apple Notes into tasks."""
+    from km.db import get_db
+    from km.taskdriver import harvest_from_notes
+
+    added = harvest_from_notes(get_db(_cfg().db_path))
+    if not added:
+        console.print("No new TODOs found in notes.")
+        return
+    for a in added:
+        console.print(f"  [green]+[/green] {a['text']} [dim]({a['source']})[/dim]")
+    console.print(f"[green]{len(added)} task(s) harvested.[/green]")
 
 
 @app.command(name="sync-schedule")

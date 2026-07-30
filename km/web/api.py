@@ -352,6 +352,265 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         path.write_text("\n".join(lines) + "\n")
         return {"written": str(path), "count": len(req.ids)}
 
+    # ── continuous sync ─────────────────────────────────────────────
+    _sync_state = {"running": False, "last_run": None, "last_result": None}
+
+    def _run_sync():
+        from datetime import datetime, timezone
+
+        from km.db import get_db as _get_db
+        from km.discover.scanner import scan_chrome_live, scan_roots
+        from km.extract.essays import mark_essays
+        from km.extract.reading_lists import mark_reading_lists
+        from km.extract.score import compute_scores
+        from km.extract.threads import mark_threads
+        from km.ingest import ingest_manifest
+        from km.models import Manifest
+
+        conn = _get_db(cfg.db_path, check_same_thread=False)
+        stamp = datetime.now(timezone.utc).isoformat()
+        new_items = 0
+        try:
+            live = scan_chrome_live()
+            if live:
+                new_items += ingest_manifest(conn, Manifest(generated_at=stamp, entries=live), cfg).total_items
+            ready = [e for e in scan_roots(cfg) if e.status == "ready" and e.source_type != "generic"]
+            if ready:
+                new_items += ingest_manifest(conn, Manifest(generated_at=stamp, entries=ready), cfg).total_items
+            try:
+                from km.sources.apple_notes import sync_notes
+
+                sync_notes(conn, cfg)
+            except Exception:
+                pass
+            try:
+                from km.feed import build_daily_feed, refresh_feeds
+
+                refresh_feeds(conn)
+                build_daily_feed(conn)
+            except Exception:
+                pass
+            try:
+                from km.embedding.embedder import get_embedder
+                from km.embedding.store import embed_pending
+
+                embed_pending(conn, get_embedder(cfg))
+            except Exception:
+                pass
+            mark_essays(conn, cfg.load_domains())
+            mark_threads(conn)
+            mark_reading_lists(conn)
+            compute_scores(conn)
+            _sync_state["last_result"] = f"{new_items:,} new items"
+        except Exception as exc:
+            _sync_state["last_result"] = f"failed: {exc}"
+        finally:
+            _sync_state["running"] = False
+            _sync_state["last_run"] = datetime.now(timezone.utc).isoformat()
+
+    @router.post("/sync")
+    def start_sync():
+        import threading
+
+        if _sync_state["running"]:
+            return {"status": "already running"}
+        _sync_state["running"] = True
+        threading.Thread(target=_run_sync, daemon=True).start()
+        return {"status": "started"}
+
+    @router.get("/sync/status")
+    def sync_status():
+        return _sync_state
+
+    # ── tasks: the lock-in list ─────────────────────────────────────
+    class TaskIn(BaseModel):
+        text: str
+        due: Optional[str] = None
+
+    class TaskPatch(BaseModel):
+        status: Optional[str] = None
+        due: Optional[str] = None
+        text: Optional[str] = None
+
+    @router.get("/tasks")
+    def tasks(status: str = "open"):
+        from km.taskdriver import list_tasks
+
+        return {"tasks": list_tasks(get_conn(), status)}
+
+    @router.post("/tasks")
+    def create_task(body: TaskIn):
+        from km.taskdriver import add_task
+
+        task_id = add_task(get_conn(), body.text, body.due)
+        return {"id": task_id}
+
+    @router.patch("/tasks/{task_id}")
+    def patch_task(task_id: int, body: TaskPatch):
+        conn = get_conn()
+        if body.status:
+            from km.taskdriver import set_status
+
+            set_status(conn, task_id, body.status)
+        if body.due is not None or body.text is not None:
+            if body.due is not None:
+                conn.execute("UPDATE tasks SET due=? WHERE id=?", (body.due or None, task_id))
+            if body.text is not None:
+                conn.execute("UPDATE tasks SET text=? WHERE id=?", (body.text, task_id))
+            conn.commit()
+        return {"ok": True}
+
+    @router.post("/tasks/harvest")
+    def harvest_tasks():
+        from km.taskdriver import harvest_from_notes
+
+        added = harvest_from_notes(get_conn())
+        return {"added": added}
+
+    # ── the daily reading feed ──────────────────────────────────────
+    @router.get("/feed")
+    def feed():
+        from km.feed import build_daily_feed, get_daily_feed
+
+        conn = get_conn()
+        build_daily_feed(conn)
+        return {"items": get_daily_feed(conn)}
+
+    @router.post("/feed/refresh")
+    def feed_refresh():
+        from km.feed import build_daily_feed, refresh_feeds
+
+        conn = get_conn()
+        stats = refresh_feeds(conn)
+        built = build_daily_feed(conn)
+        return {**stats, "feed_size": built}
+
+    @router.post("/feed/read/{item_id}")
+    def feed_read(item_id: int):
+        from km.feed import mark_read
+
+        mark_read(get_conn(), item_id)
+        return {"ok": True}
+
+    # ── smart collections: features you create by asking ───────────
+    class CollectionIn(BaseModel):
+        name: str
+        spec: dict
+
+    @router.get("/collections")
+    def collections():
+        return {"collections": [
+            {"id": r["id"], "name": r["name"], "spec": json.loads(r["spec"])}
+            for r in get_conn().execute("SELECT * FROM smart_collections ORDER BY id")
+        ]}
+
+    @router.post("/collections")
+    def create_collection(body: CollectionIn):
+        conn = get_conn()
+        cur = conn.execute(
+            "INSERT INTO smart_collections(name, spec, created_at) VALUES (?,?,?)",
+            (body.name, json.dumps(body.spec), datetime.now(timezone.utc).isoformat()))
+        conn.commit()
+        return {"id": cur.lastrowid}
+
+    @router.delete("/collections/{cid}")
+    def delete_collection(cid: int):
+        conn = get_conn()
+        conn.execute("DELETE FROM smart_collections WHERE id=?", (cid,))
+        conn.commit()
+        return {"ok": True}
+
+    class CollectionAI(BaseModel):
+        instruction: str
+
+    @router.post("/collections/ai")
+    def ai_collection(body: CollectionAI):
+        """Describe the collection you want in plain words; Claude writes the spec."""
+        if not cfg.anthropic_api_key:
+            raise HTTPException(402, "ANTHROPIC_API_KEY not set")
+        from km.classify.client import get_client, parse_json_response
+
+        prompt = (
+            "Turn this request into a saved-search spec for a personal archive. "
+            'Reply with JSON only: {"name": "<2-4 words>", "query": "<search words or empty>", '
+            '"filters": {optional keys: kind (visit|like|bookmark_tweet|note|chat_conversation|'
+            "search_query|feed_post), domain, category (aphorism|natural_law|contrarian|joke|"
+            "quote|hot_take|interesting_fact|tool_or_resource|thread|anecdote|personal), "
+            'is_essay (true), date_from (YYYY-MM-DD), date_to}}. Request: ' + body.instruction
+        )
+        try:
+            response = get_client().messages.create(
+                model=cfg.classification.model, max_tokens=300,
+                messages=[{"role": "user", "content": prompt}])
+            spec = parse_json_response("".join(b.text for b in response.content if b.type == "text"))
+        except Exception as exc:
+            raise HTTPException(502, f"AI spec failed: {exc}")
+        name = spec.pop("name", body.instruction[:30])
+        conn = get_conn()
+        cur = conn.execute(
+            "INSERT INTO smart_collections(name, spec, created_at) VALUES (?,?,?)",
+            (name, json.dumps(spec), datetime.now(timezone.utc).isoformat()))
+        conn.commit()
+        return {"id": cur.lastrowid, "name": name, "spec": spec}
+
+    # ── the companion: talk to your archive in the browser ──────────
+    class TalkIn(BaseModel):
+        persona: str = "therapist"
+        message: str
+        new_session: bool = False
+
+    @router.get("/talk/personas")
+    def personas():
+        from km.classify.talk import TALK_PERSONAS
+
+        return {"personas": list(TALK_PERSONAS.keys())}
+
+    @router.get("/talk/history")
+    def talk_history(persona: str = "therapist"):
+        from km.classify.talk import latest_session, load_history
+
+        path = latest_session(cfg.data_dir, persona)
+        return {"messages": load_history(path) if path else [],
+                "session": path.name if path else None}
+
+    @router.post("/talk/message")
+    def talk_message(body: TalkIn):
+        from km.classify.talk import (
+            TALK_PERSONAS, build_system, latest_session, load_history,
+            save_session, summarize_session, talk_turn,
+        )
+
+        if body.persona not in TALK_PERSONAS:
+            raise HTTPException(400, "unknown persona")
+        if not cfg.anthropic_api_key:
+            raise HTTPException(402, "ANTHROPIC_API_KEY not set (put it in .env)")
+        from km.classify.client import get_client
+
+        conn = get_conn()
+        client = get_client()
+        path = None if body.new_session else latest_session(cfg.data_dir, body.persona)
+        if body.new_session:
+            prior = latest_session(cfg.data_dir, body.persona)
+            if prior:
+                try:  # give the next session memory of this one
+                    summarize_session(conn, client, cfg.classification.model,
+                                      body.persona, prior, load_history(prior))
+                except Exception:
+                    pass
+        messages = load_history(path) if path else []
+        messages.append({"role": "user", "content": body.message})
+        try:
+            reply = talk_turn(client, cfg.classification.model,
+                              build_system(conn, body.persona), messages)
+        except Exception as exc:
+            detail = str(exc)
+            if "credit balance" in detail:
+                raise HTTPException(402, "Anthropic API credit balance too low")
+            raise HTTPException(502, detail)
+        messages.append({"role": "assistant", "content": reply})
+        saved = save_session(cfg.data_dir, body.persona, path, messages)
+        return {"reply": reply, "session": saved.name}
+
     @router.post("/upload")
     async def upload_archive(name: str, request: Request):
         """Accept one archive file (raw body), classify it, ingest it.

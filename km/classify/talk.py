@@ -50,6 +50,31 @@ data and their words actually show, including self-deception, and push toward ag
 without dismissing the wound. Cite their own notes back to them when they contradict \
 themselves. Short, direct replies. If something is genuinely clinical, say once that a \
 professional matters, then keep working. Never use em dashes.""",
+    "therapist": """You are a therapist-like companion in an ongoing, long-term \
+relationship with this person. You are not a licensed clinician and you say so once \
+if stakes ever turn acute, but you do the thing a great therapist does: you remember, \
+you notice, and you stay. You have read their complete archive: every private note, \
+years of searches (including the 3am ones), what they save and never finish, the \
+month-by-month shape of their life, their open and overdue commitments, and notes \
+from your own past sessions together. How to work:
+- Continuity first. Open by picking up threads from past session notes when they exist: \
+what they were carrying last time, what they said they would try.
+- Ground interpretations in evidence: quote their own note or pattern, gently, when it \
+illuminates. The archive is the shared object in the room.
+- Notice avoidance: the topic that appears in searches but never in conversation, the \
+task rescheduled five times, the person mentioned once and dropped.
+- One thread at a time. Ask the question under the question. Silence-friendly pacing: \
+short replies are fine.
+- Warmth without performance. No therapy-speak, no diagnosis, no advice dumps. \
+Never use em dashes.""",
+    "secretary": """You are a sharp, kind chief-of-staff for this person's actual life. \
+You can see their open tasks (including what is overdue and how long it slipped), \
+today's reading feed, their recent searches, notes, and calendar of behavior (when \
+they actually focus). Each conversation: give the state of play in two sentences, \
+name the one thing that matters most today and why, be blunt about slippage without \
+moralizing, and end with a concrete plan: at most three actions with a suggested order \
+and time. If they are avoiding something repeatedly, say so and make the first step \
+smaller. Never use em dashes.""",
     "future": """You are a strategic thinking partner for someone planning their future. \
 You have read their complete archive: private notes, a month-by-month timeline of what \
 their life has actually been about (life_timeline_by_month), the searches that recur \
@@ -101,6 +126,24 @@ def save_session(data_dir: Path, persona: str, path: Optional[Path], messages: l
 def build_system(conn: sqlite3.Connection, persona: str) -> list[dict]:
     """System blocks with cache_control so the big pack is paid for once."""
     pack = build_evidence_pack(conn)
+    try:
+        from km.taskdriver import tasks_for_ai
+
+        pack["commitments"] = tasks_for_ai(conn)
+    except Exception:
+        pass
+    try:
+        from km.feed import get_daily_feed
+
+        pack["todays_reading_feed"] = [
+            {"title": f["title"], "reason": f["reason"], "read": bool(f["read"])}
+            for f in get_daily_feed(conn)
+        ]
+    except Exception:
+        pass
+    notes = session_notes(conn, persona, limit=8)
+    if notes:
+        pack["past_session_notes"] = notes
     return [
         {"type": "text", "text": TALK_PERSONAS[persona]},
         {
@@ -111,6 +154,42 @@ def build_system(conn: sqlite3.Connection, persona: str) -> list[dict]:
             "cache_control": {"type": "ephemeral"},
         },
     ]
+
+
+def session_notes(conn: sqlite3.Connection, persona: str, limit: int = 8) -> list[dict]:
+    return [
+        {"date": r["date"], "notes": r["summary"]}
+        for r in conn.execute(
+            """SELECT date, summary FROM companion_notes WHERE persona=?
+               ORDER BY date DESC LIMIT ?""", (persona, limit))
+    ]
+
+
+_NOTES_SYSTEM = """Summarize this companion session into private session notes for \
+the next session, 120 words max: threads discussed, anything the person committed to \
+or resolved, open questions to pick up next time, emotional weather. Second person \
+about them ("they..."). No em dashes."""
+
+
+def summarize_session(conn: sqlite3.Connection, client, model: str,
+                      persona: str, path: Path, messages: list[dict]) -> None:
+    """Write session notes so the next session starts with memory. Idempotent."""
+    if not messages or conn.execute(
+        "SELECT 1 FROM companion_notes WHERE session_file=?", (path.name,)
+    ).fetchone():
+        return
+    transcript = "\n".join(f"{m['role']}: {m['content'][:600]}" for m in messages[-30:])
+    response = client.messages.create(
+        model=model, max_tokens=300, system=_NOTES_SYSTEM,
+        messages=[{"role": "user", "content": transcript}],
+    )
+    summary = "".join(b.text for b in response.content if b.type == "text").strip()
+    now = datetime.now(timezone.utc)
+    conn.execute(
+        """INSERT OR IGNORE INTO companion_notes(persona, session_file, date, summary, created_at)
+           VALUES (?,?,?,?,?)""",
+        (persona, path.name, now.date().isoformat(), summary, now.isoformat()))
+    conn.commit()
 
 
 def talk_turn(client, model: str, system: list[dict], messages: list[dict]) -> str:
