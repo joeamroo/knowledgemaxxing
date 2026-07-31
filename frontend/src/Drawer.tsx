@@ -6,10 +6,19 @@ import { CATEGORIES, CATEGORY_LABELS, KIND_LABELS, SOURCE_LABELS, catStyle } fro
 const isTweetKind = (k: string) =>
   ["like", "retweet", "own_tweet", "bookmark_tweet"].includes(k);
 
-export function Drawer({ itemId, onClose, onChanged, onOpen }: {
+export function Drawer({ itemId, onClose, onChanged, onOpen, onChatAbout }: {
   itemId: number; onClose: () => void; onChanged: () => void;
   onOpen?: (id: number) => void;
+  onChatAbout?: (label: string, url?: string | null) => void;
 }) {
+  const [reader, setReader] = useState<string | null>(null);
+  const [readerBusy, setReaderBusy] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  const note2 = (msg: string) => {
+    setFlash(msg);
+    setTimeout(() => setFlash(null), 1600);
+  };
   const { data: item, refetch } = useQuery({
     queryKey: ["item", itemId],
     queryFn: () => fetchItem(itemId),
@@ -82,6 +91,60 @@ export function Drawer({ itemId, onClose, onChanged, onOpen }: {
             style={{ color: "var(--accent)" }}>
             {item.url} ↗
           </a>
+        )}
+
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          {item.url && (
+            <button onClick={() => window.open(item.url!, "_blank")}
+              className="btn-accent rounded-md px-3 py-1.5 text-[12px]">
+              Open ↗
+            </button>
+          )}
+          {item.url && (
+            <button onClick={() => navigator.clipboard.writeText(item.url!).then(() => note2("link copied"))}
+              className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Copy link</button>
+          )}
+          <button onClick={() => {
+            const label = item.title || (item.text || "").slice(0, 120);
+            navigator.clipboard.writeText(
+              `> ${(item.text || item.title || "").slice(0, 500)}\n\n[${label}](${item.url ?? ""})`
+            ).then(() => note2("markdown copied"));
+          }} className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Copy MD</button>
+          {item.url && (
+            <button disabled={readerBusy} onClick={() => {
+              if (reader) { setReader(null); return; }
+              setReaderBusy(true);
+              fetch(`/api/items/${itemId}/readable`, { method: "POST" })
+                .then((r) => r.json())
+                .then((b) => setReader(b.text ?? b.detail ?? "nothing readable"))
+                .finally(() => setReaderBusy(false));
+            }} className="btn-quiet rounded-md px-3 py-1.5 text-[12px] disabled:opacity-50">
+              {readerBusy ? "fetching..." : reader ? "Close reader" : "Read here"}
+            </button>
+          )}
+          <button onClick={() =>
+            fetch(`/api/feed/queue/${itemId}`, { method: "POST" }).then(() => note2("in today's feed"))
+          } className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Read later</button>
+          <button onClick={() => {
+            const label = item.title || (item.text || "").slice(0, 100) || item.url || "this";
+            fetch("/api/tasks", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: `Read: ${label}`.slice(0, 180) }),
+            }).then(() => note2("task added"));
+          }} className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Make task</button>
+          <button onClick={() =>
+            onChatAbout?.(item.title || (item.text || "").slice(0, 200), item.url)
+          } className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Chat about this ✦</button>
+          {flash && (
+            <span className="text-[11.5px]" style={{ color: "var(--accent)" }}>{flash}</span>
+          )}
+        </div>
+
+        {reader && (
+          <div className="quote-block mb-4 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-r-md px-4 py-3 text-[13px] not-italic"
+            style={{ color: "var(--ink-dim)" }}>
+            {reader}
+          </div>
         )}
 
         <div className="mb-5 flex flex-wrap items-center gap-2">

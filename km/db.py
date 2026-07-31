@@ -118,6 +118,15 @@ CREATE TABLE IF NOT EXISTS daily_feed(
   PRIMARY KEY(date, item_id)
 );
 
+CREATE TABLE IF NOT EXISTS custom_categories(
+  id INTEGER PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,   -- what belongs here; drives zero-shot assignment
+  created_at TEXT NOT NULL,
+  source TEXT                  -- ai | manual
+);
+
 CREATE TABLE IF NOT EXISTS companion_notes(
   id INTEGER PRIMARY KEY,
   persona TEXT NOT NULL,

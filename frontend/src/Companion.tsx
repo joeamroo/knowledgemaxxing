@@ -20,10 +20,19 @@ const PERSONA_HINTS: Record<string, string> = {
 
 type Msg = { role: string; content: string };
 
-export function CompanionPage() {
+export function CompanionPage({ seed, onSeedConsumed }: {
+  seed?: string | null; onSeedConsumed?: () => void;
+}) {
   const [persona, setPersona] = useState("therapist");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
+
+  useEffect(() => {
+    if (seed) {
+      setInput(seed);
+      onSeedConsumed?.();
+    }
+  }, [seed]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);

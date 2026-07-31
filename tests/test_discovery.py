@@ -77,3 +77,39 @@ def test_safari_history_parse(tmp_path):
     assert items[0].kind == "visit"
     assert items[0].created_at.year == 2025
     assert "iphone" in items[0].occurrence_detail
+
+
+def test_custom_category_zero_shot(monkeypatch):
+    from km.classify import custom
+    from km.embedding.store import ensure_vec_tables, serialize_f32
+
+    conn = get_db(":memory:")
+    if not ensure_vec_tables(conn, 3):
+        return
+    sid, _ = add_source(conn, "t", "t", "h")
+    vecs = {"fence post": [1.0, 0, 0], "emu warfare": [0, 1.0, 0]}
+    for title, vec in vecs.items():
+        item_id = upsert_item(conn, NormalizedItem(
+            kind="note", dedupe_key=f"apple-note:{title}", title=title, text=title,
+            created_at=datetime(2025, 1, 1, tzinfo=timezone.utc)), sid)
+        cur = conn.execute(
+            "INSERT INTO embedding_chunks(item_id, chunk_idx) VALUES (?, 0)", (item_id,))
+        conn.execute("INSERT INTO vec_items(rowid, embedding) VALUES (?,?)",
+                     (cur.lastrowid, serialize_f32(vec)))
+
+    cat = custom.create_category(conn, "Fence Lore", "posts about fences and boundaries")
+
+    class FakeEmb:
+        dims = 3
+        def encode_query(self, text):
+            return [1.0, 0, 0]
+
+    import km.embedding.embedder as emb_mod
+    monkeypatch.setattr(emb_mod, "get_embedder", lambda cfg: FakeEmb())
+
+    class Cfg:
+        pass
+    assigned = custom.assign_local(conn, Cfg(), cat["slug"], max_distance=0.5)
+    assert assigned == 1
+    row = conn.execute("SELECT category, model FROM classifications").fetchone()
+    assert row["category"] == "fence_lore" and row["model"] == "local-zero-shot"

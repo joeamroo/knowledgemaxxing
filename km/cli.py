@@ -878,6 +878,55 @@ def enrich() -> None:
     console.print("Essay heuristics refreshed. Your feed just got a much deeper bench.")
 
 
+category_app = typer.Typer(help="Extend the taxonomy: custom categories, AI-designed or yours.")
+app.add_typer(category_app, name="category")
+
+
+@category_app.command("add")
+def category_add(
+    name: str = typer.Argument(..., help="Category name, or an instruction with --ai"),
+    description: Optional[str] = typer.Option(None, "--description", "-d"),
+    ai: bool = typer.Option(False, "--ai", help="Treat the argument as an instruction; Claude designs the category"),
+) -> None:
+    """Create a category and zero-shot assign items to it with local embeddings."""
+    from km.classify.custom import assign_local, create_category, create_category_ai
+    from km.db import get_db
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    try:
+        if ai:
+            with console.status("Claude is designing the category..."):
+                cat = create_category_ai(conn, cfg, name)
+        else:
+            if not description:
+                console.print("[red]--description is required (or use --ai).[/red]")
+                raise typer.Exit(1)
+            cat = create_category(conn, name, description)
+        with console.status("assigning items with local embeddings..."):
+            assigned = assign_local(conn, cfg, cat["slug"])
+    except Exception as exc:
+        if "credit balance" in str(exc):
+            console.print("[red]API credits too low; use: km category add \"Name\" -d \"description\"[/red]")
+        else:
+            console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    console.print(
+        f"[green]\"{cat['name']}\"[/green] ({cat['slug']}) created · "
+        f"{assigned} items assigned. It now shows in the sidebar and filters.")
+
+
+@category_app.command("list")
+def category_list() -> None:
+    """List custom categories."""
+    from km.classify.custom import list_custom
+    from km.db import get_db
+
+    for c in list_custom(get_db(_cfg().db_path)):
+        console.print(f"  [bold]{c['name']}[/bold] ({c['slug']}, {c['source']})")
+        console.print(f"    [dim]{c['description'][:110]}[/dim]")
+
+
 task_app = typer.Typer(help="The lock-in list: what you said you'd do.")
 app.add_typer(task_app, name="task")
 

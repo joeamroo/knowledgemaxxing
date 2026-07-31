@@ -113,6 +113,12 @@ class TalkIn(BaseModel):
     new_session: bool = False
 
 
+class CategoryIn(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    instruction: Optional[str] = None  # plain words; Claude designs it
+
+
 class ExportRequest(BaseModel):
     ids: list[int]
     filename: str = "selection.md"
@@ -214,6 +220,80 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
                 d["distance"] = round(distance, 4)
                 out.append(d)
         return {"items": out}
+
+    # ── custom categories: the AI (or you) extends the taxonomy ─────
+    @router.get("/categories/custom")
+    def custom_categories():
+        from km.classify.custom import list_custom
+
+        return {"categories": list_custom(get_conn())}
+
+    @router.post("/categories/custom")
+    def create_custom_category(body: CategoryIn):
+        from km.classify.custom import assign_local, create_category, create_category_ai
+
+        conn = get_conn()
+        if body.instruction and not (body.name and body.description):
+            if not cfg.anthropic_api_key:
+                raise HTTPException(
+                    402, "AI category design needs ANTHROPIC_API_KEY; or give name + description")
+            try:
+                cat = create_category_ai(conn, cfg, body.instruction)
+            except Exception as exc:
+                if "credit balance" in str(exc):
+                    raise HTTPException(402, "API credits too low; give name + description instead")
+                raise HTTPException(502, f"category design failed: {exc}")
+        elif body.name and body.description:
+            cat = create_category(conn, body.name, body.description)
+        else:
+            raise HTTPException(400, "give an instruction, or a name and description")
+        try:
+            assigned = assign_local(conn, cfg, cat["slug"])
+        except Exception:
+            assigned = 0
+        return {**cat, "assigned": assigned}
+
+    # ── entry actions ───────────────────────────────────────────────
+    @router.post("/items/{item_id}/readable")
+    def readable(item_id: int):
+        """Fetch the item's page and extract clean article text (reader mode)."""
+        conn = get_conn()
+        row = conn.execute("SELECT url, text FROM items WHERE id=?", (item_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "item not found")
+        if row["text"] and len(row["text"]) > 1200:
+            return {"text": row["text"], "source": "archive"}
+        if not row["url"]:
+            raise HTTPException(422, "no url to fetch")
+        try:
+            import httpx
+            import trafilatura
+
+            r = httpx.get(row["url"], timeout=12, follow_redirects=True,
+                          headers={"User-Agent": "km-reader/1.0 (personal reading tool)"})
+            text = trafilatura.extract(r.text) or ""
+        except Exception as exc:
+            raise HTTPException(502, f"could not fetch: {exc}")
+        if not text:
+            raise HTTPException(422, "no readable article text found")
+        if len(text) > len(row["text"] or ""):
+            conn.execute("UPDATE items SET text=? WHERE id=?", (text[:60000], item_id))
+            conn.commit()
+        return {"text": text[:60000], "source": "fetched"}
+
+    @router.post("/feed/queue/{item_id}")
+    def feed_queue(item_id: int):
+        """Read later: put this item in today's feed."""
+        conn = get_conn()
+        date = datetime.now(timezone.utc).date().isoformat()
+        pos = conn.execute(
+            "SELECT coalesce(max(position), -1) + 1 FROM daily_feed WHERE date=?",
+            (date,)).fetchone()[0]
+        conn.execute(
+            "INSERT OR IGNORE INTO daily_feed(date, item_id, reason, position) VALUES (?,?,?,?)",
+            (date, item_id, "queued by you", pos))
+        conn.commit()
+        return {"ok": True}
 
     @router.post("/items/{item_id}/discover")
     def discover(item_id: int, strategy: str = "local", k: int = 6):

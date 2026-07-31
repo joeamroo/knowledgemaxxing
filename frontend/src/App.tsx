@@ -93,6 +93,7 @@ export default function App() {
   const [skipOnboarding, setSkipOnboarding] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [companionSeed, setCompanionSeed] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const statsQuery = useQuery({ queryKey: ["stats"], queryFn: fetchStats });
   const collectionsQuery = useQuery({
@@ -263,6 +264,26 @@ export default function App() {
                       dotStyle={catStyle(name)}
                       active={params.category === name} onClick={() => setFilter("category", name)} />
                   ))}
+                  <button
+                    onClick={async () => {
+                      const raw = window.prompt(
+                        "Describe the category you want. AI designs it, or write 'Name: what belongs in it' to define it yourself.");
+                      if (!raw) return;
+                      const m = raw.match(/^([^:]{2,40}):\s*(.{10,})$/);
+                      const body = m ? { name: m[1].trim(), description: m[2].trim() } : { instruction: raw };
+                      const res = await fetch("/api/categories/custom", {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body),
+                      });
+                      const out = await res.json();
+                      if (!res.ok) { window.alert(out.detail ?? "failed"); return; }
+                      window.alert(`"${out.name}" created · ${out.assigned} items assigned by local embeddings`);
+                      facetsQuery.refetch();
+                    }}
+                    className="mt-1 w-full rounded px-2 py-1 text-left text-[11.5px]"
+                    style={{ color: "var(--ink-faint)" }}>
+                    + create a category (AI)
+                  </button>
                 </Facet>
               )}
               <Facet title="Sources">
@@ -357,7 +378,7 @@ export default function App() {
         {page === "feed" ? (
           <FeedPage onOpenItem={(id) => setDrawerItem(id)} />
         ) : page === "companion" ? (
-          <CompanionPage />
+          <CompanionPage seed={companionSeed} onSeedConsumed={() => setCompanionSeed(null)} />
         ) : page === "stats" ? (
           <StatsPage />
         ) : (
@@ -417,7 +438,12 @@ export default function App() {
 
       {drawerItem !== null && (
         <Drawer itemId={drawerItem} onClose={() => setDrawerItem(null)}
-          onChanged={() => itemsQuery.refetch()} onOpen={(id) => setDrawerItem(id)} />
+          onChanged={() => itemsQuery.refetch()} onOpen={(id) => setDrawerItem(id)}
+          onChatAbout={(label, url) => {
+            setCompanionSeed(`About this entry from my archive: "${label}"${url ? ` (${url})` : ""}\n\n`);
+            setDrawerItem(null);
+            setPage("companion");
+          }} />
       )}
       {askOpen && (
         <AskPanel onClose={() => setAskOpen(false)} onOpenItem={(id) => setDrawerItem(id)}
