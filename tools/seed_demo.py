@@ -89,6 +89,15 @@ SEARCHES = [
     "what is the lindy effect", "marcus aurelius meditations best translation",
     "python typer cli tutorial", "local first software", "bge embeddings",
     "how to make sourdough starter", "national parks road trip route",
+    "chesterton's fence meaning", "hofstadter's law", "best essays of the decade",
+    "annie dillard how we spend our days", "deliberate practice vs flow",
+    "why are old books better", "commonplace book examples", "sqlite vs postgres for local apps",
+    "reading retention techniques", "hamming you and your research summary",
+    "compound interest of reading", "digital garden vs blog", "note taking second brain",
+    "how long to form a habit", "essay about doing hard things", "attention residue",
+    "best substack essays", "rss is not dead", "why keep a journal",
+    "memory palace technique", "slow productivity", "what makes writing good",
+    "archive your own data", "personal knowledge management overkill",
 ]
 
 DOMAINS = [
@@ -195,8 +204,10 @@ def main() -> None:
 
     for i in range(400):
         query = rng.choice(SEARCHES)
+        # same dedupe scheme as real ingestion: identical queries merge into
+        # one item, every occurrence preserved
         upsert_item(conn, NormalizedItem(
-            kind="search_query", dedupe_key=f"search:demo:{i}", text=query,
+            kind="search_query", dedupe_key=f"search:{query}", text=query,
             created_at=_stamp()), sid)
 
     for i in range(1200):

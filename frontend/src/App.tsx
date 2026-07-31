@@ -287,7 +287,7 @@ export default function App() {
           )}
         </div>
 
-        <div className="flex items-center gap-1 border-t hairline px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-0.5 gap-y-1 border-t hairline px-2 py-2">
           <SideButton title="Add archives (drag and drop exports)"
             onClick={() => setShowOnboarding(true)} label="Add" />
           <SideButton title="Today's memory mix" onClick={() => setTodayOpen(true)} label="Today" />

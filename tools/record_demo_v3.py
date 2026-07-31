@@ -26,6 +26,7 @@ BASE = "http://127.0.0.1:8890"
 OUT_DIR = Path(__file__).resolve().parent.parent / "exports"
 VIDEO_DIR = OUT_DIR / "demo-video-raw"
 W, H = 1920, 1080
+REC_W, REC_H = 3840, 2160
 
 STAGE_JS = """
 () => {
@@ -79,8 +80,9 @@ STAGE_JS = """
     });
   };
   const root = document.getElementById('root') || document.body.firstElementChild;
-  root.style.transition = 'transform 1s cubic-bezier(.4,.05,.2,1)';
-  window.__zoom = (scale, ox, oy) => {
+  root.style.transition = 'transform 1s cubic-bezier(.3,.9,.35,1)';
+  window.__zoom = (scale, ox, oy, ms) => {
+    root.style.transitionDuration = (ms || 1000) + 'ms';
     root.style.transformOrigin = ox + 'px ' + oy + 'px';
     root.style.transform = scale === 1 ? 'none' : 'scale(' + scale + ')';
   };
@@ -134,13 +136,13 @@ class Director:
         self.page.mouse.click(x, y)
         self.pause(settle)
 
-    def zoom(self, scale, x, y, hold=1.6):
-        self.page.evaluate("([s,x,y]) => window.__zoom(s,x,y)", [scale, x, y])
-        self.pause(1.05 + hold)
+    def zoom(self, scale, x, y, hold=1.6, ms=650):
+        self.page.evaluate("([s,x,y,ms]) => window.__zoom(s,x,y,ms)", [scale, x, y, ms])
+        self.pause(ms / 1000 + 0.05 + hold)
 
-    def unzoom(self, hold=0.5):
-        self.page.evaluate("() => window.__zoom(1, 0, 0)")
-        self.pause(1.05 + hold)
+    def unzoom(self, hold=0.5, ms=750):
+        self.page.evaluate("([ms]) => window.__zoom(1, 0, 0, ms)", [ms])
+        self.pause(ms / 1000 + 0.05 + hold)
 
 
 def main() -> None:
@@ -163,22 +165,26 @@ def main() -> None:
         page.wait_for_timeout(1600)
         d = Director(page)
 
-        # 1. what this is
-        d.say(700, 170, "<b>This is km.</b> Every search, save, note, and chat you ever made. One archive, on your machine.", hold=2.8)
+        # 1. what this is: slow push-in while the bubble talks
+        d.zoom(1.18, 960, 430, hold=0.0, ms=2200)
+        d.say(700, 170, "<b>This is km.</b> Every search, save, note, and chat you ever made. One archive, on your machine.", hold=2.7)
         d.hush()
+        d.unzoom(0.1, ms=650)
 
         # 2. search + provenance + more-like-this
         search = page.get_by_placeholder("Search the archive...")
-        d.click(search, ms=800)
-        page.keyboard.type("chesterton", delay=90)
+        d.click(search, ms=700)
+        d.zoom(1.7, 480, 0, hold=0.0)
+        page.keyboard.type("chesterton", delay=95)
         page.keyboard.press("Enter")
-        d.pause(1.3)
+        d.pause(1.0)
+        d.zoom(1.15, 700, 0, hold=0.4, ms=750)
         row = page.locator("text=Chesterton's fence").first
         d.click(row, ms=700, settle=1.1)
         d.say(620, 200, "Every item keeps its <b>provenance</b>, and the archive suggests <b>more like it</b>.", hold=0.4)
-        d.zoom(1.28, 1520, 420, hold=2.6)
-        d.unzoom(0.2)
+        d.zoom(1.6, 1600, 380, hold=2.7)
         d.hush()
+        d.unzoom(0.1, ms=700)
         page.keyboard.press("Escape")
         d.pause(0.3)
         d.click(search, ms=450)
@@ -192,6 +198,7 @@ def main() -> None:
         d.say(1330, 120, "Half-remember something? <b>Ask in your own words.</b>", hold=0.5)
         d.click(ask_btn, ms=650, settle=0.9)
         d.hush()
+        d.zoom(1.6, 960, 40, hold=0.0)
         page.keyboard.type("the tweet about machine guns and birds in australia", delay=48)
         d.pause(0.3)
         rerank = page.locator("text=Claude re-rank")
@@ -201,8 +208,10 @@ def main() -> None:
         d.click(ask_go, ms=480, settle=0.4)
         page.wait_for_selector("text=hybrid results", timeout=30000)
         d.pause(0.9)
-        d.say(1280, 560, "<b>Local embeddings</b> find it. No cloud, no API.", hold=2.4)
+        d.zoom(1.3, 820, 120, hold=0.0, ms=700)
+        d.say(1280, 620, "<b>Local embeddings</b> find it. No cloud, no API.", hold=2.5)
         d.hush()
+        d.unzoom(0.2, ms=750)
         page.keyboard.press("Escape")
         d.pause(0.4)
 
@@ -211,19 +220,23 @@ def main() -> None:
         d.say(330, 150, "Every morning: a <b>reading feed</b> built from your own trail.", hold=0.5)
         d.click(feed_tab, ms=650, settle=1.3)
         d.hush()
-        d.say(1180, 300, "Fresh posts from blogs you read, <b>plus what you saved and forgot</b>.", hold=2.2)
+        d.zoom(1.5, 800, 330, hold=0.0)
+        d.say(1180, 300, "Fresh posts from blogs you read, <b>plus what you saved and forgot</b>.", hold=2.3)
         first_check = page.locator("input[type=checkbox]").first
         if first_check.count():
             d.click(first_check, ms=600, settle=0.9)
         d.hush()
+        d.unzoom(0.1, ms=700)
 
         # 5. tasks
         tasks_btn = page.locator("text=Tasks").first
         d.say(300, 900, "It also <b>keeps score</b> of what you said you'd do.", hold=0.5)
         d.click(tasks_btn, ms=650, settle=1.2)
         d.hush()
-        d.say(760, 300, "Overdue first. Harvested from <b>your own notes</b>. The secretary persona sees all of it.", hold=2.4)
+        d.zoom(1.55, 1620, 330, hold=0.0)
+        d.say(700, 300, "Overdue first. Harvested from <b>your own notes</b>. The secretary persona sees all of it.", hold=2.5)
         d.hush()
+        d.unzoom(0.1, ms=700)
         page.keyboard.press("Escape")
         d.pause(0.4)
 
@@ -232,12 +245,14 @@ def main() -> None:
         d.say(330, 150, "And the point of it all: <b>an AI that has actually read you.</b>", hold=0.5)
         d.click(comp_tab, ms=650, settle=1.3)
         d.hush()
-        d.say(1200, 260, "A <b>therapist</b> with your whole archive, that remembers every session.", hold=2.0)
+        d.say(1200, 260, "A <b>therapist</b> with your whole archive, that remembers every session.", hold=2.1)
         box = page.locator("textarea").first
         d.click(box, ms=600, settle=0.3)
-        page.keyboard.type("I keep saying this year was a waste.", delay=55)
+        d.zoom(1.6, 720, 940, hold=0.0)
+        page.keyboard.type("I keep saying this year was a waste.", delay=58)
         d.pause(2.2)
         d.hush()
+        d.unzoom(0.1, ms=800)
 
         # 7. stats, briefly
         d.click(page.locator("text=Stats").first, ms=650, settle=1.5)
@@ -246,8 +261,10 @@ def main() -> None:
         d.pause(0.6)
         page.mouse.wheel(0, 620)
         d.pause(0.8)
-        d.say(1180, 330, "Hour by hour, year by year. <b>Yes, you are nocturnal.</b>", hold=2.2)
+        d.zoom(1.4, 750, 380, hold=0.0)
+        d.say(1180, 330, "Hour by hour, year by year. <b>Yes, you are nocturnal.</b>", hold=2.3)
         d.hush()
+        d.unzoom(0.2, ms=700)
 
         # 8. end
         page.evaluate("() => window.__endCard()")
@@ -260,8 +277,8 @@ def main() -> None:
     out = OUT_DIR / "km-demo.mp4"
     subprocess.run([
         "ffmpeg", "-y", "-i", str(video_path),
-        "-vf", "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:vsbmc=1",
-        "-c:v", "libx264", "-preset", "slow", "-crf", "18",
+        "-vf", "minterpolate=fps=60:mi_mode=mci:mc_mode=obmc,scale=3840:2160:flags=lanczos",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "17",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out),
     ], check=True, capture_output=True)
     print(f"wrote {out}")
