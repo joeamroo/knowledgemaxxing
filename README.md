@@ -1,9 +1,29 @@
+<p align="center">
+  <img src=".github/assets/km-card.png" alt="km: every rabbit hole you ever went down, searchable" width="760">
+</p>
+
+<p align="center">
+  <a href="https://montroselabs.ai/km/">Website + demo video</a> ·
+  <a href="#setup">Quickstart</a> ·
+  <a href="#privacy">Privacy</a>
+</p>
+
 # km (knowledgemaxxing)
 
 **Every rabbit hole you ever went down, searchable.**
 
-Find out more, watch the demo, and get the two-minute quickstart at
-**[montroselabs.ai/km](https://montroselabs.ai/km/)**.
+<table>
+  <tr>
+    <td><img src=".github/assets/km-shot-drawer.png" alt="Search with the item drawer: provenance, more like this, web discovery"></td>
+    <td><img src=".github/assets/km-shot-feed.png" alt="The daily reading feed"></td>
+  </tr>
+  <tr>
+    <td><img src=".github/assets/km-stats.png" alt="Stats: accumulation, heatmap, hour-of-day rhythms"></td>
+    <td><img src=".github/assets/km-shot-companion.png" alt="The companion: six AI personas that have read your archive"></td>
+  </tr>
+</table>
+
+<sub>All screenshots show the bundled synthetic demo data.</sub>
 
 Local-first tool that mines your digital exhaust (browser history,
 Twitter/X, Reddit, Substack, Hacker News, AI chat exports) into one
