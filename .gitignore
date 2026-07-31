@@ -18,7 +18,7 @@ config.yaml
 evals.yaml
 domains.yaml
 DATA_SOURCES.md
-km-*.png
-km-*.jpg
+/km-*.png
+/km-*.jpg
 .playwright-mcp/
 docs/
