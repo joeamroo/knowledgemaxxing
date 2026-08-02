@@ -692,6 +692,9 @@ def random(
 @app.command()
 def ui(
     port: int = typer.Option(8765, "--port"),
+    read_only: bool = typer.Option(
+        False, "--read-only",
+        help="Demo/share mode: browsing and search only, editing and AI disabled"),
 ) -> None:
     """Serve the local web UI on 127.0.0.1."""
     try:
@@ -702,12 +705,16 @@ def ui(
     from km.web.server import create_app
 
     cfg = _cfg()
-    console.print(f"[bold]km ui[/bold] at http://127.0.0.1:{port}")
+    mode = " [yellow](read-only)[/yellow]" if read_only else ""
+    console.print(f"[bold]km ui[/bold] at http://127.0.0.1:{port}{mode}")
     import threading
     import webbrowser
 
     threading.Timer(1.2, webbrowser.open, [f"http://127.0.0.1:{port}"]).start()
-    uvicorn.run(create_app(cfg), host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.run(
+        create_app(cfg, read_only=read_only),
+        host="127.0.0.1", port=port, log_level="warning",
+    )
 
 
 @app.command()
@@ -876,6 +883,30 @@ def feeds_opml(
         return
     console.print(f"[green]wrote[/green] {n} feeds to {out_path}")
     console.print("Import it into any RSS reader (Feedly, NetNewsWire, Miniflux, ...).")
+
+
+@app.command(name="import-opml")
+def import_opml_cmd(
+    path: str = typer.Argument(..., help="OPML file exported from your RSS reader"),
+) -> None:
+    """Seed feed discovery from a reader's OPML export. New domains join the
+    daily reading feed on the next refresh; existing ones are never clobbered."""
+    from km.db import get_db
+    from km.feed import import_opml
+
+    opml_path = Path(path).expanduser()
+    if not opml_path.exists():
+        console.print(f"[red]No such file:[/red] {opml_path}")
+        raise typer.Exit(1)
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    result = import_opml(conn, opml_path)
+    console.print(
+        f"[green]imported[/green] {result['added']} new feeds "
+        f"({result['skipped']} already known or unusable)"
+    )
+    if result["added"]:
+        console.print("They join the reading feed on the next [bold]km feed --refresh[/bold].")
 
 
 @app.command(name="discover-similar")

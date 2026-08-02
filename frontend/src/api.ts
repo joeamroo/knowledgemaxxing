@@ -54,6 +54,8 @@ export const fetchFacets = (params: Record<string, string | undefined>) => {
 
 export const fetchStats = () => fetch(`/api/stats`).then((r) => json<any>(r));
 
+export const fetchMeta = () => fetch(`/api/meta`).then((r) => json<{ read_only: boolean }>(r));
+
 export const fetchRandom = (category?: string) =>
   fetch(`/api/random${category ? `?category=${category}` : ""}`).then((r) => json<Item>(r));
 

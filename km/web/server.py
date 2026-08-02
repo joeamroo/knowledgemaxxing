@@ -18,7 +18,7 @@ from km.web.api import build_router
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-def create_app(cfg: Config) -> FastAPI:
+def create_app(cfg: Config, read_only: bool = False) -> FastAPI:
     app = FastAPI(title="km", docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
@@ -32,6 +32,24 @@ def create_app(cfg: Config) -> FastAPI:
 
             return PlainTextResponse("km only answers to localhost", status_code=403)
         return await call_next(request)
+
+    if read_only:
+        # every mutation and AI call in the API is a POST/PATCH/DELETE, so one
+        # method gate covers all current and future endpoints
+        @app.middleware("http")
+        async def read_only_gate(request, call_next):
+            if request.method not in ("GET", "HEAD", "OPTIONS"):
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    {"detail": "km is in read-only mode; editing and AI are disabled"},
+                    status_code=403,
+                )
+            return await call_next(request)
+
+    @app.get("/api/meta")
+    def meta():
+        return {"read_only": read_only}
 
     # one connection per app; SQLite in WAL mode handles the UI's read-heavy load
     conn = get_db(cfg.db_path, check_same_thread=False)

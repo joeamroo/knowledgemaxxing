@@ -13,7 +13,7 @@ const REASON_STYLE: Record<string, string> = {
   "buried in your saves": "#7fae8f",
 };
 
-export function FeedPage({ onOpenItem }: { onOpenItem: (id: number) => void }) {
+export function FeedPage({ onOpenItem, readOnly }: { onOpenItem: (id: number) => void; readOnly?: boolean }) {
   const qc = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const { data } = useQuery({
@@ -50,10 +50,12 @@ export function FeedPage({ onOpenItem }: { onOpenItem: (id: number) => void }) {
               {unread} unread · fresh posts and buried gems from your own trail
             </div>
           </div>
-          <button onClick={refresh} disabled={refreshing}
-            className="btn-quiet rounded-md px-3.5 py-2 text-[12.5px] disabled:opacity-50">
-            {refreshing ? "fetching feeds..." : "Refresh feeds"}
-          </button>
+          {!readOnly && (
+            <button onClick={refresh} disabled={refreshing}
+              className="btn-quiet rounded-md px-3.5 py-2 text-[12.5px] disabled:opacity-50">
+              {refreshing ? "fetching feeds..." : "Refresh feeds"}
+            </button>
+          )}
         </div>
 
         {items.length === 0 && (
@@ -71,7 +73,8 @@ export function FeedPage({ onOpenItem }: { onOpenItem: (id: number) => void }) {
                 className="flex items-start gap-3 rounded-lg border hairline p-4"
                 style={{ background: "var(--bg-raised)", opacity: it.read ? 0.45 : 1 }}>
                 <input type="checkbox" checked={!!it.read}
-                  onChange={() => markRead(it.item_id)}
+                  onChange={() => !readOnly && markRead(it.item_id)}
+                  disabled={readOnly}
                   title="Mark read"
                   className="mt-1 accent-[var(--accent)]" />
                 <div className="min-w-0 flex-1">

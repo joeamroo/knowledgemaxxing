@@ -100,9 +100,12 @@ uv run km reports             # obsessions, best tweets, reading debt, questions
 uv run km rewind 2025         # a year in review: new obsessions, discoveries
 uv run km digest              # on-this-day memories + resurfaced gems
 uv run km feeds-opml          # export discovered RSS feeds as OPML for any reader
+uv run km import-opml my.opml # seed feed discovery from your reader's subscriptions
 uv run km mentor              # AI psychoanalysis of the whole archive (paid)
 uv run km talk                # ongoing conversation with your archive (paid)
 uv run km ui                  # local web UI at http://127.0.0.1:8765
+uv run km ui --read-only      # demo/share mode: browsing and search only,
+                              # editing and AI disabled (server-enforced)
 ```
 
 Offline analytics (`reports`, `rewind`, `timeline`, `rhythms` inside

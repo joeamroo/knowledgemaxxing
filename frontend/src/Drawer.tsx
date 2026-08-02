@@ -6,10 +6,11 @@ import { CATEGORIES, CATEGORY_LABELS, KIND_LABELS, SOURCE_LABELS, catStyle } fro
 const isTweetKind = (k: string) =>
   ["like", "retweet", "own_tweet", "bookmark_tweet"].includes(k);
 
-export function Drawer({ itemId, onClose, onChanged, onOpen, onChatAbout }: {
+export function Drawer({ itemId, onClose, onChanged, onOpen, onChatAbout, readOnly }: {
   itemId: number; onClose: () => void; onChanged: () => void;
   onOpen?: (id: number) => void;
   onChatAbout?: (label: string, url?: string | null) => void;
+  readOnly?: boolean;
 }) {
   const [reader, setReader] = useState<string | null>(null);
   const [readerBusy, setReaderBusy] = useState(false);
@@ -110,7 +111,7 @@ export function Drawer({ itemId, onClose, onChanged, onOpen, onChatAbout }: {
               `> ${(item.text || item.title || "").slice(0, 500)}\n\n[${label}](${item.url ?? ""})`
             ).then(() => note2("markdown copied"));
           }} className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Copy MD</button>
-          {item.url && (
+          {item.url && !readOnly && (
             <button disabled={readerBusy} onClick={() => {
               if (reader) { setReader(null); return; }
               setReaderBusy(true);
@@ -122,19 +123,25 @@ export function Drawer({ itemId, onClose, onChanged, onOpen, onChatAbout }: {
               {readerBusy ? "fetching..." : reader ? "Close reader" : "Read here"}
             </button>
           )}
-          <button onClick={() =>
-            fetch(`/api/feed/queue/${itemId}`, { method: "POST" }).then(() => note2("in today's feed"))
-          } className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Read later</button>
-          <button onClick={() => {
-            const label = item.title || (item.text || "").slice(0, 100) || item.url || "this";
-            fetch("/api/tasks", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: `Read: ${label}`.slice(0, 180) }),
-            }).then(() => note2("task added"));
-          }} className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Make task</button>
-          <button onClick={() =>
-            onChatAbout?.(item.title || (item.text || "").slice(0, 200), item.url)
-          } className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Chat about this ✦</button>
+          {!readOnly && (
+            <button onClick={() =>
+              fetch(`/api/feed/queue/${itemId}`, { method: "POST" }).then(() => note2("in today's feed"))
+            } className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Read later</button>
+          )}
+          {!readOnly && (
+            <button onClick={() => {
+              const label = item.title || (item.text || "").slice(0, 100) || item.url || "this";
+              fetch("/api/tasks", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: `Read: ${label}`.slice(0, 180) }),
+              }).then(() => note2("task added"));
+            }} className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Make task</button>
+          )}
+          {!readOnly && (
+            <button onClick={() =>
+              onChatAbout?.(item.title || (item.text || "").slice(0, 200), item.url)
+            } className="btn-quiet rounded-md px-3 py-1.5 text-[12px]">Chat about this ✦</button>
+          )}
           {flash && (
             <span className="text-[11.5px]" style={{ color: "var(--accent)" }}>{flash}</span>
           )}
@@ -148,6 +155,7 @@ export function Drawer({ itemId, onClose, onChanged, onOpen, onChatAbout }: {
         )}
 
         <div className="mb-5 flex flex-wrap items-center gap-2">
+          {!readOnly && (<>
           <button onClick={() => mutate({ starred: !item.starred })}
             className={`btn-quiet rounded-md px-3 py-1.5 text-[12px] ${item.starred ? "!border-[var(--accent)]" : ""}`}
             style={item.starred ? { color: "var(--accent)" } : undefined}>
@@ -167,6 +175,7 @@ export function Drawer({ itemId, onClose, onChanged, onOpen, onChatAbout }: {
               <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
             ))}
           </select>
+          </>)}
           {item.category && (
             <span className="chip" style={catStyle(item.category)}>
               <span className="h-1 w-1 rounded-full" style={{ background: "var(--cat)" }} />
@@ -215,7 +224,7 @@ export function Drawer({ itemId, onClose, onChanged, onOpen, onChatAbout }: {
           </>
         )}
 
-        {item.url && (
+        {item.url && !readOnly && (
           <div className="mb-5">
             <button onClick={discover} disabled={discovering}
               className="btn-quiet rounded-md px-3 py-1.5 text-[12px] disabled:opacity-50">
@@ -253,13 +262,20 @@ export function Drawer({ itemId, onClose, onChanged, onOpen, onChatAbout }: {
         )}
 
         <div className="smallcaps mb-1.5">Marginalia</div>
-        <textarea
-          value={note ?? item.note ?? ""}
-          onChange={(e) => setNote(e.target.value)}
-          onBlur={() => note !== null && mutate({ note })}
-          placeholder="A note in the margin..."
-          className="search-field h-24 w-full rounded-md p-3 text-[13px]"
-        />
+        {readOnly ? (
+          <div className="quote-block rounded-r-md px-4 py-3 text-[13px]"
+            style={{ color: "var(--ink-dim)" }}>
+            {item.note || "no notes on this one"}
+          </div>
+        ) : (
+          <textarea
+            value={note ?? item.note ?? ""}
+            onChange={(e) => setNote(e.target.value)}
+            onBlur={() => note !== null && mutate({ note })}
+            placeholder="A note in the margin..."
+            className="search-field h-24 w-full rounded-md p-3 text-[13px]"
+          />
+        )}
         <div className="font-mono-data mt-3" style={{ color: "var(--ink-faint)" }}>
           interest {item.interest_score?.toFixed(1)} · first seen {item.created_at?.slice(0, 10) ?? "unknown"}
         </div>

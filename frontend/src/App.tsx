@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchFacets, fetchItems, fetchRandom, fetchStats, Item } from "./api";
+import { fetchFacets, fetchItems, fetchMeta, fetchRandom, fetchStats, Item } from "./api";
 import { CompanionPage } from "./Companion";
 import { FeedPage } from "./Feed";
 import { Onboarding } from "./Onboarding";
@@ -53,6 +53,8 @@ export default function App() {
   const [focusRow, setFocusRow] = useState(0);
   const [dark, setDark] = useState(true);
   const searchRef = useRef<HTMLInputElement>(null);
+  const metaQuery = useQuery({ queryKey: ["meta"], queryFn: fetchMeta, staleTime: Infinity });
+  const readOnly = metaQuery.data?.read_only ?? false;
 
   const mode = params.mode ?? "hybrid";
   useEffect(() => setParams({ q: query || undefined }), [query]);
@@ -186,10 +188,16 @@ export default function App() {
             km<span style={{ color: "var(--accent)" }}>.</span>
           </button>
           <div className="smallcaps mt-1">knowledgemaxxing</div>
+          {readOnly && (
+            <div className="smallcaps mt-1" style={{ color: "var(--accent)" }}>read-only</div>
+          )}
         </div>
 
         <div className="mb-1 flex gap-1 px-3">
-          {([["table", "Archive"], ["feed", "Feed"], ["companion", "Companion"]] as const).map(
+          {(readOnly
+            ? ([["table", "Archive"], ["feed", "Feed"]] as const)
+            : ([["table", "Archive"], ["feed", "Feed"], ["companion", "Companion"]] as const)
+          ).map(
             ([key, label]) => (
               <button key={key} onClick={() => setPage(key)}
                 className="flex-1 rounded-md px-2 py-1.5 text-[12px] font-medium transition-colors"
@@ -309,15 +317,21 @@ export default function App() {
         </div>
 
         <div className="flex flex-wrap items-center gap-x-0.5 gap-y-1 border-t hairline px-2 py-2">
-          <SideButton title="Add archives (drag and drop exports)"
-            onClick={() => setShowOnboarding(true)} label="Add" />
+          {!readOnly && (
+            <SideButton title="Add archives (drag and drop exports)"
+              onClick={() => setShowOnboarding(true)} label="Add" />
+          )}
           <SideButton title="Today's memory mix" onClick={() => setTodayOpen(true)} label="Today" />
           <SideButton title="Stats" active={page === "stats"}
             onClick={() => setPage(page === "stats" ? "table" : "stats")} label="Stats" />
-          <SideButton title="Lock in: tasks, overdue first"
-            onClick={() => setTasksOpen(true)} label="Tasks" />
-          <SideButton title="Pull fresh data from everywhere (Chrome, notes, feeds)"
-            onClick={runSync} label={syncing ? "Sync…" : "Sync"} active={syncing} />
+          {!readOnly && (
+            <SideButton title="Lock in: tasks, overdue first"
+              onClick={() => setTasksOpen(true)} label="Tasks" />
+          )}
+          {!readOnly && (
+            <SideButton title="Pull fresh data from everywhere (Chrome, notes, feeds)"
+              onClick={runSync} label={syncing ? "Sync…" : "Sync"} active={syncing} />
+          )}
           <SideButton title="Random item (recall practice)"
             onClick={() => fetchRandom(params.category).then((it) => setDrawerItem(it.id))} label="Random" />
           <SideButton title="Toggle theme" onClick={() => setDark(!dark)} label={dark ? "Day" : "Night"} />
@@ -343,11 +357,13 @@ export default function App() {
               </button>
             ))}
           </div>
-          <button onClick={() => setAskOpen(true)}
-            className="btn-accent shrink-0 rounded-md px-3.5 py-2 text-[12.5px]">
-            Ask ✦
-          </button>
-          {selected.size > 0 && (
+          {!readOnly && (
+            <button onClick={() => setAskOpen(true)}
+              className="btn-accent shrink-0 rounded-md px-3.5 py-2 text-[12.5px]">
+              Ask ✦
+            </button>
+          )}
+          {!readOnly && selected.size > 0 && (
             <button
               onClick={() =>
                 import("./api").then(({ exportSelection }) =>
@@ -376,7 +392,7 @@ export default function App() {
         )}
 
         {page === "feed" ? (
-          <FeedPage onOpenItem={(id) => setDrawerItem(id)} />
+          <FeedPage onOpenItem={(id) => setDrawerItem(id)} readOnly={readOnly} />
         ) : page === "companion" ? (
           <CompanionPage seed={companionSeed} onSeedConsumed={() => setCompanionSeed(null)} />
         ) : page === "stats" ? (
@@ -437,7 +453,7 @@ export default function App() {
       </main>
 
       {drawerItem !== null && (
-        <Drawer itemId={drawerItem} onClose={() => setDrawerItem(null)}
+        <Drawer itemId={drawerItem} onClose={() => setDrawerItem(null)} readOnly={readOnly}
           onChanged={() => itemsQuery.refetch()} onOpen={(id) => setDrawerItem(id)}
           onChatAbout={(label, url) => {
             setCompanionSeed(`About this entry from my archive: "${label}"${url ? ` (${url})` : ""}\n\n`);

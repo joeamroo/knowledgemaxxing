@@ -357,3 +357,40 @@ def export_opml(conn: sqlite3.Connection, out_path) -> int:
     lines += ["  </body>", "</opml>"]
     out_path.write_text("\n".join(lines) + "\n")
     return len(rows)
+
+
+def import_opml(conn: sqlite3.Connection, in_path) -> dict:
+    """Seed the feeds table from a reader's OPML export (the export's inverse).
+
+    Walks every <outline> with an xmlUrl, at any nesting depth (readers group
+    feeds in folders). Domain comes from htmlUrl when present, else from the
+    feed URL host. Existing domains are left untouched so a re-import never
+    clobbers km's own discoveries. Returns {"added": n, "skipped": n}.
+    """
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    root = ET.parse(Path(in_path)).getroot()
+    added = skipped = 0
+    for outline in root.iter("outline"):
+        feed_url = (outline.get("xmlUrl") or "").strip()
+        if not feed_url:
+            continue
+        site = (outline.get("htmlUrl") or "").strip()
+        host = urlparse(site or feed_url).netloc.lower()
+        domain = host[4:] if host.startswith("www.") else host
+        if not domain:
+            skipped += 1
+            continue
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO feeds(domain, feed_url, last_fetched, ok) "
+            "VALUES (?, ?, NULL, 1)",
+            (domain, feed_url),
+        )
+        if cur.rowcount:
+            added += 1
+        else:
+            skipped += 1
+    conn.commit()
+    return {"added": added, "skipped": skipped}
