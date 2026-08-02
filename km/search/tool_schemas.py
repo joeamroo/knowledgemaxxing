@@ -73,4 +73,140 @@ TOOL_SCHEMAS = [
         ),
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "similar_items",
+        "description": (
+            "Embedding nearest-neighbors of one item: 'more things like this'. "
+            "Use after finding a good hit to widen the net."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer", "description": "Anchor item id"},
+                "k": {"type": "integer", "description": "How many neighbors (default 8)"},
+            },
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "star_item",
+        "description": "Star (or unstar) an item so it shows in the Starred collection.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "starred": {"type": "boolean", "description": "false to unstar (default true)"},
+            },
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "add_note",
+        "description": "Attach a margin note to an item (replaces any existing note).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "integer"}, "note": {"type": "string"}},
+            "required": ["id", "note"],
+        },
+    },
+    {
+        "name": "set_category",
+        "description": "Recategorize an item (user override beats the classifier).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "integer"}, "category": {"type": "string"}},
+            "required": ["id", "category"],
+        },
+    },
+    {
+        "name": "create_task",
+        "description": "Add a task to the user's task list (e.g. 'Read: <title>').",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "due": {"type": "string", "description": "Optional ISO date"},
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "complete_task",
+        "description": "Mark a task done by its id (see get_tasks).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"task_id": {"type": "integer"}},
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "get_tasks",
+        "description": "The user's task list. status: open (default) | done | dropped.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"status": {"type": "string"}},
+        },
+    },
+    {
+        "name": "queue_reading",
+        "description": "Put an item into today's reading feed ('read later').",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "integer"}},
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "get_reading_feed",
+        "description": "Today's reading feed with read/unread state.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "save_collection",
+        "description": (
+            "Save a search or filter set as a named smart collection in the "
+            "UI sidebar, so a list the user asked for stays one click away."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "query": {"type": "string", "description": "Optional search text"},
+                "kind": {"type": "string"},
+                "category": {"type": "string"},
+                "domain": {"type": "string"},
+                "is_essay": {"type": "boolean"},
+                "date_from": {"type": "string"},
+                "date_to": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "export_list",
+        "description": (
+            "Write a markdown file of links (exports/lists/<slug>.md) from "
+            "explicit item ids, for lists the user wants as a file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "item_ids": {"type": "array", "items": {"type": "integer"}},
+            },
+            "required": ["title", "item_ids"],
+        },
+    },
+    {
+        "name": "fetch_page",
+        "description": (
+            "Fetch one item's article text from the web right now (when "
+            "get_item shows no article_body). Stores it for future search too."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "integer"}},
+            "required": ["id"],
+        },
+    },
 ]

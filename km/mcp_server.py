@@ -20,10 +20,13 @@ from typing import Any, Optional
 PROTOCOL_VERSION = "2025-06-18"
 
 from km.search.tool_schemas import TOOL_SCHEMAS
+from km.search.tools import READ_TOOLS
 
+# MCP stays read-only by contract: only the tools that SELECT are exposed
 TOOLS = [
     {"name": t["name"], "description": t["description"], "inputSchema": t["input_schema"]}
     for t in TOOL_SCHEMAS
+    if t["name"] in READ_TOOLS
 ]
 
 
@@ -55,17 +58,11 @@ class KmServer:
     # ── tools (shared implementations in km.search.tools) ──
 
     def call_tool(self, name: str, args: dict):
-        from km.search import tools
+        from km.search.tools import run_tool
 
-        if name == "search_archive":
-            return tools.search_archive(self.conn, self.embedder(), **args)
-        if name == "get_item":
-            return tools.get_item(self.conn, **args)
-        if name == "list_items":
-            return tools.list_items(self.conn, **args)
-        if name == "archive_stats":
-            return tools.archive_stats(self.conn)
-        raise KeyError(name)
+        if name not in READ_TOOLS:
+            raise KeyError(name)  # write tools are chat-only, never MCP
+        return run_tool(name, self.conn, self.cfg, self.embedder(), args)
 
     # ── protocol plumbing ──────────────────────────────────
 

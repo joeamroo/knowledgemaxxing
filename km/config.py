@@ -67,6 +67,9 @@ class Config(BaseModel):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     grok_export_path: str = ""
     network: NetworkConfig = Field(default_factory=NetworkConfig)
+    # hard monthly cap on estimated interactive AI spend (chat, ask --ai);
+    # 0 disables the guard. The ledger lives in the ai_spend table.
+    ai_monthly_budget_usd: float = 15.0
 
     project_root: Path = Field(default_factory=Path.cwd, exclude=True)
 

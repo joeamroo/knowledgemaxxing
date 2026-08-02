@@ -460,7 +460,8 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
             from km.classify.client import get_client
             from km.search.rerank import rerank
 
-            picks = rerank(get_client(), cfg.classification.model, req.query, candidates)
+            picks = rerank(get_client(), cfg.classification.model, req.query, candidates,
+                           conn=conn, cfg=cfg)
             return {"mode": "ai", "picks": picks, "candidates": candidates[:req.k]}
         return {"mode": "hybrid", "picks": [], "candidates": candidates[:req.k]}
 
@@ -716,17 +717,22 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         messages = load_history(path) if path else []
         messages.append({"role": "user", "content": body.message})
         tool_trace: list[str] = []
+        from km.classify.spend import BudgetExceeded, month_spend
+
         try:
             if body.persona == "archivist":
                 from km.classify.agent import run_agent
 
                 reply, tool_trace = run_agent(
                     client, cfg.classification.model, conn,
-                    _embedder_or_none(), messages,
+                    _embedder_or_none(), messages, cfg=cfg,
                 )
             else:
                 reply = talk_turn(client, cfg.classification.model,
-                                  build_system(conn, body.persona), messages)
+                                  build_system(conn, body.persona), messages,
+                                  conn=conn, cfg=cfg)
+        except BudgetExceeded as exc:
+            raise HTTPException(402, str(exc))
         except Exception as exc:
             detail = str(exc)
             if "credit balance" in detail:
@@ -734,7 +740,18 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
             raise HTTPException(502, detail)
         messages.append({"role": "assistant", "content": reply})
         saved = save_session(cfg.data_dir, body.persona, path, messages)
-        return {"reply": reply, "session": saved.name, "tools_used": tool_trace}
+        return {
+            "reply": reply, "session": saved.name, "tools_used": tool_trace,
+            "spend": {"month_usd": round(month_spend(conn), 2),
+                      "budget_usd": cfg.ai_monthly_budget_usd},
+        }
+
+    @router.get("/spend")
+    def spend():
+        from km.classify.spend import month_spend
+
+        return {"month_usd": round(month_spend(get_conn()), 2),
+                "budget_usd": cfg.ai_monthly_budget_usd}
 
     @router.post("/upload")
     async def upload_archive(name: str, request: Request):

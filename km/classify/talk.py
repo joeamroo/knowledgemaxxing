@@ -179,7 +179,10 @@ def summarize_session(conn: sqlite3.Connection, client, model: str,
     ).fetchone():
         return
     transcript = "\n".join(f"{m['role']}: {m['content'][:600]}" for m in messages[-30:])
-    response = client.messages.create(
+    from km.classify.spend import tracked_create
+
+    response = tracked_create(
+        conn, None, client, "summary",
         model=model, max_tokens=300, system=_NOTES_SYSTEM,
         messages=[{"role": "user", "content": transcript}],
     )
@@ -192,11 +195,19 @@ def summarize_session(conn: sqlite3.Connection, client, model: str,
     conn.commit()
 
 
-def talk_turn(client, model: str, system: list[dict], messages: list[dict]) -> str:
-    response = client.messages.create(
-        model=model,
-        max_tokens=1500,
-        system=system,
-        messages=messages,
-    )
+def talk_turn(client, model: str, system: list[dict], messages: list[dict],
+              conn=None, cfg=None) -> str:
+    """One companion turn. With conn, spend is recorded (and the budget
+    enforced when cfg is also given)."""
+    if conn is not None:
+        from km.classify.spend import tracked_create
+
+        response = tracked_create(
+            conn, cfg, client, "talk",
+            model=model, max_tokens=1500, system=system, messages=messages,
+        )
+    else:
+        response = client.messages.create(
+            model=model, max_tokens=1500, system=system, messages=messages,
+        )
     return "".join(block.text for block in response.content if block.type == "text")

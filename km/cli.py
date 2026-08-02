@@ -425,9 +425,9 @@ def talk(
         except RuntimeError:
             pass
 
-        def talk_turn(client, use_model, system, messages):  # noqa: F811
+        def talk_turn(client, use_model, system, messages, **_kw):  # noqa: F811
             reply, trace = run_agent(
-                client, use_model, conn, embedder, messages,
+                client, use_model, conn, embedder, messages, cfg=cfg,
                 on_activity=lambda label: console.print(f"  [dim]{label}[/dim]"),
             )
             return reply
@@ -451,7 +451,7 @@ def talk(
         messages.append({"role": "user", "content": user_input})
         try:
             with console.status("..."):
-                reply = talk_turn(client, use_model, system, messages)
+                reply = talk_turn(client, use_model, system, messages, conn=conn, cfg=cfg)
         except Exception as exc:
             message = str(exc)
             messages.pop()
@@ -705,7 +705,8 @@ def ask(
         if not cfg.anthropic_api_key:
             console.print("[red]--ai needs ANTHROPIC_API_KEY in .env[/red]")
             raise typer.Exit(1)
-        picks = rerank(get_client(), model or cfg.classification.model, query, results)
+        picks = rerank(get_client(), model or cfg.classification.model, query, results,
+                       conn=conn, cfg=cfg)
         if picks:
             console.print("[bold]Claude's picks:[/bold]")
             for pick in picks:

@@ -227,8 +227,10 @@ def test_mcp_protocol_and_search(tmp_path):
     assert server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
 
     tools = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    from km.search.tools import READ_TOOLS
+
     names = {t["name"] for t in tools["result"]["tools"]}
-    assert names == {"search_archive", "get_item", "list_items", "archive_stats"}
+    assert names == READ_TOOLS
 
     call = server.handle({
         "jsonrpc": "2.0", "id": 3, "method": "tools/call",

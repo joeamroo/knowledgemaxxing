@@ -107,8 +107,10 @@ uv run km feeds-opml          # export discovered RSS feeds as OPML for any read
 uv run km import-opml my.opml # seed feed discovery from your reader's subscriptions
 uv run km mentor              # AI psychoanalysis of the whole archive (paid)
 uv run km talk                # chat with your archive (paid): the default archivist
-                              # persona runs live searches, quotes exact passages,
-                              # and builds link lists; also in the web UI
+                              # persona searches live, quotes exact passages, builds
+                              # and saves link lists, manages tasks and the reading
+                              # feed. Spend is metered against ai_monthly_budget_usd
+                              # in config.yaml; also in the web UI
 uv run km ui                  # local web UI at http://127.0.0.1:8765
 uv run km ui --read-only      # demo/share mode: browsing and search only,
                               # editing and AI disabled (server-enforced)

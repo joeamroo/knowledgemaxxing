@@ -1,14 +1,14 @@
 """The archivist: an agentic chat over the whole archive.
 
 Unlike the companion personas (which carry a sampled evidence pack), the
-archivist works like a research assistant with live tools: it runs
-hybrid searches, pulls full items, builds filtered link lists, and
-checks archive stats, in a tool-use loop, before answering. This is the
-"find that passage I read years ago" and "make me a list of every
-fermentation link I saved" chat.
+archivist works like a research assistant with live tools: it searches,
+pulls full items, builds and saves lists, stars and annotates, manages
+tasks and the reading feed, and can fetch an article's text on demand.
 
-Only item text and the conversation go to the API, with the user's own
-key. Tools are read-only.
+Cost discipline: every call goes through the spend ledger (tracked_create),
+the system prompt is cache_controlled, history is windowed, and tool
+results are truncated. When the monthly budget is hit the loop refuses
+before spending anything.
 """
 from __future__ import annotations
 
@@ -16,9 +16,13 @@ import json
 import sqlite3
 from typing import Callable, Optional
 
+from km.classify.spend import tracked_create
 from km.search.tool_schemas import TOOL_SCHEMAS
+from km.search.tools import run_tool
 
 MAX_TOOL_ROUNDS = 8
+HISTORY_WINDOW = 24          # prior messages sent per turn
+TOOL_RESULT_MAX_CHARS = 24_000
 
 ARCHIVIST_SYSTEM = """You are the archivist for this person's complete digital \
 history: every browser visit, bookmark, tweet they saved, AI conversation, note, \
@@ -31,21 +35,30 @@ How to work:
 description. Try a second phrasing if the first misses; vary the wording, not \
 just the keywords. Quote the matching passage back and give the url.
 - "Make me a list": list_items with filters (or several searches), then present \
-a clean markdown list of titles with urls and dates. Say how many there were in \
-total if you truncated.
-- Deep dives: get_item for the full text before summarizing or quoting at length.
+a clean markdown list of titles with urls and dates. Offer to save_collection \
+(pins it in their sidebar) or export_list (writes a markdown file) when the \
+list seems worth keeping.
+- Deep dives: get_item for the full text. If article_body is missing, \
+fetch_page pulls it from the web right now.
+- Explore: similar_items widens from a good hit to its neighbors.
+- Act when asked: star_item, add_note, set_category on items; create_task / \
+complete_task / get_tasks for their task list; queue_reading for 'read later'.
 - Broad questions about their history: archive_stats first to orient.
 - Cite specifics: title, url, date, which source saw it. Never invent an item, \
 a url, or a quote. If the archive genuinely does not have it, say so plainly \
 and suggest a different search they could try.
 - Be direct and useful. Markdown lists and short paragraphs; no filler, no \
-em dashes ever."""
+em dashes ever. Tools cost money: be effective, not exhaustive."""
 
 
 def _tool_result_block(tool_use_id: str, payload) -> dict:
     if not isinstance(payload, str):
         payload = json.dumps(payload, ensure_ascii=False)
-    return {"type": "tool_result", "tool_use_id": tool_use_id, "content": payload[:60_000]}
+    return {
+        "type": "tool_result",
+        "tool_use_id": tool_use_id,
+        "content": payload[:TOOL_RESULT_MAX_CHARS],
+    }
 
 
 def run_agent(
@@ -54,22 +67,24 @@ def run_agent(
     conn: sqlite3.Connection,
     embedder,
     messages: list[dict],
+    cfg=None,
     on_activity: Optional[Callable[[str], None]] = None,
     max_tokens: int = 2000,
 ) -> tuple[str, list[str]]:
     """Run one archivist turn: tool-use loop until Claude answers in text.
 
     messages: prior turns as plain {"role", "content": str} pairs; the tool
-    traffic lives only inside this call. Returns (reply_text, tool_trace)
-    where tool_trace lists human-readable tool calls made.
+    traffic lives only inside this call. Returns (reply_text, tool_trace).
+    Raises BudgetExceeded (from spend.tracked_create) when the monthly
+    budget is already spent.
     """
-    from km.search import tools
-
-    convo: list[dict] = [dict(m) for m in messages]
+    convo: list[dict] = [dict(m) for m in messages[-HISTORY_WINDOW:]]
     trace: list[str] = []
+    text = ""
 
     for _ in range(MAX_TOOL_ROUNDS):
-        response = client.messages.create(
+        response = tracked_create(
+            conn, cfg, client, "archivist",
             model=model,
             max_tokens=max_tokens,
             system=[{"type": "text", "text": ARCHIVIST_SYSTEM,
@@ -95,18 +110,13 @@ def run_agent(
             if on_activity:
                 on_activity(label)
             try:
-                if use.name == "search_archive":
-                    payload = tools.search_archive(conn, embedder, **args)
-                elif use.name == "get_item":
-                    payload = tools.get_item(conn, **args)
-                elif use.name == "list_items":
-                    payload = tools.list_items(conn, **args)
-                elif use.name == "archive_stats":
-                    payload = tools.archive_stats(conn)
-                else:
-                    payload = {"error": f"unknown tool {use.name}"}
+                payload = run_tool(use.name, conn, cfg, embedder, args)
+            except KeyError:
+                payload = {"error": f"unknown tool {use.name}"}
             except TypeError as exc:  # bad/unexpected arguments from the model
                 payload = {"error": str(exc)}
+            except Exception as exc:  # tool bugs surface in-band, loop survives
+                payload = {"error": f"{type(exc).__name__}: {exc}"}
             results.append(_tool_result_block(use.id, payload))
         convo.append({"role": "user", "content": results})
 

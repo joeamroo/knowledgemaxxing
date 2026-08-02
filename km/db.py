@@ -136,6 +136,18 @@ CREATE TABLE IF NOT EXISTS companion_notes(
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS ai_spend(
+  id INTEGER PRIMARY KEY,
+  at TEXT NOT NULL,
+  model TEXT,
+  context TEXT,            -- archivist | talk:<persona> | rerank | summary
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  cache_creation INTEGER DEFAULT 0,
+  cache_read INTEGER DEFAULT 0,
+  cost_usd REAL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS smart_collections(
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,

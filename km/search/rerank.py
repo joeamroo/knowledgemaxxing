@@ -21,9 +21,11 @@ Respond with ONLY a JSON array (no prose, no code fences) of at most 8 picks:
 If nothing plausibly matches, return []."""
 
 
-def rerank(client, model: str, query: str, candidates: list[dict]) -> list[dict]:
+def rerank(client, model: str, query: str, candidates: list[dict],
+           conn=None, cfg=None) -> list[dict]:
     """candidates: dicts with id/title/snippet/kind/sources. Returns picks
-    (subset of candidates, ordered) each with a `reasoning` line."""
+    (subset of candidates, ordered) each with a `reasoning` line. With conn,
+    spend is recorded (and the budget enforced when cfg is also given)."""
     payload = [
         {
             "id": c["id"],
@@ -38,7 +40,17 @@ def rerank(client, model: str, query: str, candidates: list[dict]) -> list[dict]
         f"My fuzzy memory: {query}\n\nCandidates:\n"
         + json.dumps(payload, ensure_ascii=False)
     )
-    text = call_claude(client, model, _SYSTEM, user, max_tokens=2000)
+    if conn is not None:
+        from km.classify.spend import tracked_create
+
+        response = tracked_create(
+            conn, cfg, client, "rerank",
+            model=model, max_tokens=2000, system=_SYSTEM,
+            messages=[{"role": "user", "content": user}],
+        )
+        text = "".join(b.text for b in response.content if b.type == "text")
+    else:
+        text = call_claude(client, model, _SYSTEM, user, max_tokens=2000)
     parsed = parse_json_response(text)
     if not isinstance(parsed, list):
         return []

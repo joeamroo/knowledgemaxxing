@@ -51,7 +51,12 @@ export function CompanionPage({ seed, onSeedConsumed }: {
   }, [seed]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [spend, setSpend] = useState<{ month_usd: number; budget_usd: number } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch("/api/spend").then((r) => r.json()).then(setSpend).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setError(null);
@@ -80,6 +85,7 @@ export function CompanionPage({ seed, onSeedConsumed }: {
       const body = await res.json();
       if (!res.ok) throw new Error(body.detail ?? "failed");
       setMessages((m) => [...m, { role: "assistant", content: body.reply, tools: body.tools_used }]);
+      if (body.spend) setSpend(body.spend);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "something went wrong");
     } finally {
@@ -100,12 +106,21 @@ export function CompanionPage({ seed, onSeedConsumed }: {
             {label}
           </button>
         ))}
-        <button
-          onClick={() => { setMessages([]); setInput(""); }}
-          title="Start a fresh session (the last one becomes session notes)"
-          className="ml-auto text-[12px]" style={{ color: "var(--ink-faint)" }}>
-          new session
-        </button>
+        <div className="ml-auto flex items-center gap-3">
+          {spend && spend.budget_usd > 0 && (
+            <span className="font-mono-data text-[11px]"
+              title="Estimated AI spend this month vs your budget (ai_monthly_budget_usd in config.yaml)"
+              style={{ color: spend.month_usd >= spend.budget_usd * 0.8 ? "#c96b5a" : "var(--ink-faint)" }}>
+              ${spend.month_usd.toFixed(2)} / ${spend.budget_usd.toFixed(0)}
+            </span>
+          )}
+          <button
+            onClick={() => { setMessages([]); setInput(""); }}
+            title="Start a fresh session (the last one becomes session notes)"
+            className="text-[12px]" style={{ color: "var(--ink-faint)" }}>
+            new session
+          </button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
