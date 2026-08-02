@@ -379,12 +379,14 @@ def mentor(
 
 @app.command()
 def talk(
-    persona: str = typer.Option("companion", "--persona",
-                                help="companion | analyst | harsh | therapist | secretary | future"),
+    persona: str = typer.Option("archivist", "--persona",
+                                help="archivist | companion | analyst | harsh | therapist | secretary | future"),
     model: Optional[str] = typer.Option(None, "--model"),
     new: bool = typer.Option(False, "--new", help="Start a fresh session instead of resuming"),
 ) -> None:
-    """Talk with an AI that has read your whole archive. Sessions persist."""
+    """Talk with an AI over your whole archive. The default archivist runs
+    live searches and builds lists; the other personas are companions that
+    carry a sampled evidence pack. Sessions persist."""
     from km.classify.client import get_client
     from km.classify.talk import (
         TALK_PERSONAS, build_system, latest_session, load_history, save_session, talk_turn,
@@ -393,8 +395,8 @@ def talk(
 
     cfg = _cfg()
     conn = get_db(cfg.db_path)
-    if persona not in TALK_PERSONAS:
-        console.print(f"[red]persona must be one of: {', '.join(TALK_PERSONAS)}[/red]")
+    if persona != "archivist" and persona not in TALK_PERSONAS:
+        console.print(f"[red]persona must be one of: archivist, {', '.join(TALK_PERSONAS)}[/red]")
         raise typer.Exit(1)
     if not cfg.anthropic_api_key:
         console.print("[red]ANTHROPIC_API_KEY not set (put it in .env).[/red]")
@@ -407,10 +409,32 @@ def talk(
         console.print(f"[dim]resuming session with {len(messages) // 2} prior exchanges "
                       f"({session_path.name}); --new starts fresh[/dim]")
 
-    console.print(f"[bold]km talk[/bold] · {persona} persona · they have read your archive.")
+    console.print(f"[bold]km talk[/bold] · {persona} persona"
+                  + (" · live archive tools" if persona == "archivist"
+                     else " · they have read your archive."))
     console.print("[dim]Type your message; 'exit' ends and saves. First reply may take a moment.[/dim]\n")
-    system = build_system(conn, persona)
     client = get_client()
+    if persona == "archivist":
+        from km.classify.agent import run_agent
+
+        embedder = None
+        try:
+            from km.embedding.embedder import get_embedder
+
+            embedder = get_embedder(cfg)
+        except RuntimeError:
+            pass
+
+        def talk_turn(client, use_model, system, messages):  # noqa: F811
+            reply, trace = run_agent(
+                client, use_model, conn, embedder, messages,
+                on_activity=lambda label: console.print(f"  [dim]{label}[/dim]"),
+            )
+            return reply
+
+        system = None
+    else:
+        system = build_system(conn, persona)
 
     while True:
         try:
@@ -850,17 +874,7 @@ def sync(
         except Exception as exc:
             console.print(f"  [yellow]scrapers skipped: {exc}[/yellow]")
 
-    if embed_new:
-        console.print("[bold]km sync[/bold] · embeddings")
-        try:
-            from km.embedding.embedder import get_embedder
-            from km.embedding.store import embed_pending
-
-            count = embed_pending(conn, get_embedder(cfg))
-            console.print(f"  {count} new chunks embedded")
-        except Exception as exc:
-            console.print(f"  [yellow]skipped: {exc}[/yellow]")
-
+    # heuristics before content/embeddings: they mark the essays worth fetching
     console.print("[bold]km sync[/bold] · heuristics")
     from km.extract.essays import mark_essays
     from km.extract.reading_lists import mark_reading_lists
@@ -873,6 +887,32 @@ def sync(
     mark_reading_lists(conn)
     compute_scores(conn)
     run_wisdom_pass(conn)
+
+    console.print("[bold]km sync[/bold] · article text (for passage search)")
+    try:
+        from km.fetch_content import fetch_content
+
+        counters = fetch_content(conn, cfg, limit=150)
+        if counters["total"]:
+            console.print(
+                f"  {counters['fetched']} articles fetched "
+                f"({counters['total']} tried; the rest catch up next pass)")
+        else:
+            console.print("  content up to date")
+    except Exception as exc:
+        console.print(f"  [yellow]skipped: {exc}[/yellow]")
+
+    if embed_new:
+        console.print("[bold]km sync[/bold] · embeddings")
+        try:
+            from km.embedding.embedder import get_embedder
+            from km.embedding.store import embed_pending
+
+            count = embed_pending(conn, get_embedder(cfg))
+            console.print(f"  {count} new chunks embedded")
+        except Exception as exc:
+            console.print(f"  [yellow]skipped: {exc}[/yellow]")
+
     console.print(f"\n[green]sync complete:[/green] {new_items:,} new items this pass")
 
 

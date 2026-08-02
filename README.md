@@ -80,6 +80,7 @@ uv run km extract             # essay/thread/reading-list detection + interest s
 uv run km classify            # AI-categorize tweets (shows cost estimate first)
 uv run km fetch-content       # fetch readable article text for essays and saves,
                               # so search finds the passage, not just the title
+                              # (km sync runs this automatically, 150 pages/pass)
 uv run km embed               # local embeddings for semantic search (passage-level,
                               # with the fetched article bodies included)
 uv run km export              # regenerate exports/*.md
@@ -105,7 +106,9 @@ uv run km digest              # on-this-day memories + resurfaced gems
 uv run km feeds-opml          # export discovered RSS feeds as OPML for any reader
 uv run km import-opml my.opml # seed feed discovery from your reader's subscriptions
 uv run km mentor              # AI psychoanalysis of the whole archive (paid)
-uv run km talk                # ongoing conversation with your archive (paid)
+uv run km talk                # chat with your archive (paid): the default archivist
+                              # persona runs live searches, quotes exact passages,
+                              # and builds link lists; also in the web UI
 uv run km ui                  # local web UI at http://127.0.0.1:8765
 uv run km ui --read-only      # demo/share mode: browsing and search only,
                               # editing and AI disabled (server-enforced)

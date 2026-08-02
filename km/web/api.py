@@ -520,6 +520,17 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
                 build_daily_feed(conn)
             except Exception:
                 pass
+            # heuristics first: they mark the essays worth fetching
+            mark_essays(conn, cfg.load_domains())
+            mark_threads(conn)
+            mark_reading_lists(conn)
+            compute_scores(conn)
+            try:
+                from km.fetch_content import fetch_content
+
+                fetch_content(conn, cfg, limit=150)
+            except Exception:
+                pass
             try:
                 from km.embedding.embedder import get_embedder
                 from km.embedding.store import embed_pending
@@ -527,10 +538,6 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
                 embed_pending(conn, get_embedder(cfg))
             except Exception:
                 pass
-            mark_essays(conn, cfg.load_domains())
-            mark_threads(conn)
-            mark_reading_lists(conn)
-            compute_scores(conn)
             _sync_state["last_result"] = f"{new_items:,} new items"
         except Exception as exc:
             _sync_state["last_result"] = f"failed: {exc}"
@@ -672,7 +679,7 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
     def personas():
         from km.classify.talk import TALK_PERSONAS
 
-        return {"personas": list(TALK_PERSONAS.keys())}
+        return {"personas": ["archivist", *TALK_PERSONAS.keys()]}
 
     @router.get("/talk/history")
     def talk_history(persona: str = "therapist"):
@@ -689,7 +696,7 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
             save_session, summarize_session, talk_turn,
         )
 
-        if body.persona not in TALK_PERSONAS:
+        if body.persona != "archivist" and body.persona not in TALK_PERSONAS:
             raise HTTPException(400, "unknown persona")
         if not cfg.anthropic_api_key:
             raise HTTPException(402, "ANTHROPIC_API_KEY not set (put it in .env)")
@@ -708,9 +715,18 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
                     pass
         messages = load_history(path) if path else []
         messages.append({"role": "user", "content": body.message})
+        tool_trace: list[str] = []
         try:
-            reply = talk_turn(client, cfg.classification.model,
-                              build_system(conn, body.persona), messages)
+            if body.persona == "archivist":
+                from km.classify.agent import run_agent
+
+                reply, tool_trace = run_agent(
+                    client, cfg.classification.model, conn,
+                    _embedder_or_none(), messages,
+                )
+            else:
+                reply = talk_turn(client, cfg.classification.model,
+                                  build_system(conn, body.persona), messages)
         except Exception as exc:
             detail = str(exc)
             if "credit balance" in detail:
@@ -718,7 +734,7 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
             raise HTTPException(502, detail)
         messages.append({"role": "assistant", "content": reply})
         saved = save_session(cfg.data_dir, body.persona, path, messages)
-        return {"reply": reply, "session": saved.name}
+        return {"reply": reply, "session": saved.name, "tools_used": tool_trace}
 
     @router.post("/upload")
     async def upload_archive(name: str, request: Request):

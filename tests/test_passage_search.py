@@ -228,7 +228,7 @@ def test_mcp_protocol_and_search(tmp_path):
 
     tools = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     names = {t["name"] for t in tools["result"]["tools"]}
-    assert names == {"search_archive", "get_item"}
+    assert names == {"search_archive", "get_item", "list_items", "archive_stats"}
 
     call = server.handle({
         "jsonrpc": "2.0", "id": 3, "method": "tools/call",

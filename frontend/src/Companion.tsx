@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 const PERSONA_LABELS: Record<string, string> = {
+  archivist: "Archivist",
   therapist: "Therapist",
   companion: "Companion",
   analyst: "Analyst",
@@ -10,6 +11,7 @@ const PERSONA_LABELS: Record<string, string> = {
 };
 
 const PERSONA_HINTS: Record<string, string> = {
+  archivist: "Searches your whole history live: finds half-remembered passages, builds lists of links, digs into anything you ever read or saved.",
   therapist: "It has read everything and remembers your past sessions. Start anywhere.",
   companion: "A close friend who has read your whole archive.",
   analyst: "Bold interpretations, held lightly, grounded in your notes.",
@@ -18,12 +20,26 @@ const PERSONA_HINTS: Record<string, string> = {
   future: "Plans your next chapter against your real trajectory.",
 };
 
-type Msg = { role: string; content: string };
+type Msg = { role: string; content: string; tools?: string[] };
+
+/* chat bubbles carry markdown lists and links; render the minimum well:
+   [label](url) and bare urls become anchors, **bold** becomes bold */
+function renderChat(text: string) {
+  const parts = text.split(/(\[[^\]]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s)]+|\*\*[^*]+\*\*)/g);
+  return parts.map((p, i) => {
+    const md = p.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+    if (md) return <a key={i} href={md[2]} target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--accent)" }}>{md[1]}</a>;
+    if (/^https?:\/\//.test(p)) return <a key={i} href={p} target="_blank" rel="noreferrer" className="underline break-all" style={{ color: "var(--accent)" }}>{p}</a>;
+    const bold = p.match(/^\*\*([^*]+)\*\*$/);
+    if (bold) return <strong key={i}>{bold[1]}</strong>;
+    return p;
+  });
+}
 
 export function CompanionPage({ seed, onSeedConsumed }: {
   seed?: string | null; onSeedConsumed?: () => void;
 }) {
-  const [persona, setPersona] = useState("therapist");
+  const [persona, setPersona] = useState("archivist");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
 
@@ -63,7 +79,7 @@ export function CompanionPage({ seed, onSeedConsumed }: {
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.detail ?? "failed");
-      setMessages((m) => [...m, { role: "assistant", content: body.reply }]);
+      setMessages((m) => [...m, { role: "assistant", content: body.reply, tools: body.tools_used }]);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "something went wrong");
     } finally {
@@ -107,17 +123,26 @@ export function CompanionPage({ seed, onSeedConsumed }: {
         )}
         <div className="mx-auto flex max-w-2xl flex-col gap-4">
           {messages.map((m, i) => (
-            <div key={i}
-              className="max-w-[85%] whitespace-pre-wrap rounded-xl px-4 py-3 text-[14px] leading-relaxed"
-              style={m.role === "user"
-                ? { alignSelf: "flex-end", background: "var(--bg-raised)", border: "1px solid var(--hairline)" }
-                : { alignSelf: "flex-start", background: "var(--bg-inset)", borderLeft: "3px solid var(--accent)" }}>
-              {m.content}
+            <div key={i} className="flex max-w-[85%] flex-col gap-1"
+              style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start" }}>
+              <div
+                className="whitespace-pre-wrap rounded-xl px-4 py-3 text-[14px] leading-relaxed"
+                style={m.role === "user"
+                  ? { background: "var(--bg-raised)", border: "1px solid var(--hairline)" }
+                  : { background: "var(--bg-inset)", borderLeft: "3px solid var(--accent)" }}>
+                {m.role === "user" ? m.content : renderChat(m.content)}
+              </div>
+              {m.tools && m.tools.length > 0 && (
+                <div className="font-mono-data px-1 text-[10.5px]" style={{ color: "var(--ink-faint)" }}
+                  title={m.tools.join("\n")}>
+                  searched: {m.tools.slice(0, 3).join(" · ")}{m.tools.length > 3 ? ` +${m.tools.length - 3}` : ""}
+                </div>
+              )}
             </div>
           ))}
           {busy && (
             <div className="text-[13px]" style={{ color: "var(--ink-faint)" }}>
-              reading the archive...
+              {persona === "archivist" ? "searching the archive..." : "reading the archive..."}
             </div>
           )}
           {error && (
