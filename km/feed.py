@@ -317,3 +317,43 @@ def mark_read(conn: sqlite3.Connection, item_id: int, date: Optional[str] = None
     date = date or datetime.now(timezone.utc).date().isoformat()
     conn.execute("UPDATE daily_feed SET read=1 WHERE date=? AND item_id=?", (date, item_id))
     conn.commit()
+
+
+def _xml_escape(text: str) -> str:
+    return (
+        (text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def export_opml(conn: sqlite3.Connection, out_path) -> int:
+    """Write every discovered feed to an OPML file importable by any RSS reader.
+
+    km discovers the RSS on blogs you actually read; this lets you take those
+    subscriptions with you. Returns the number of feeds written.
+    """
+    from pathlib import Path
+
+    out_path = Path(out_path)
+    rows = conn.execute(
+        "SELECT domain, feed_url FROM feeds WHERE feed_url IS NOT NULL AND ok=1 "
+        "ORDER BY domain"
+    ).fetchall()
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<opml version="2.0">',
+        "  <head><title>km discovered feeds</title></head>",
+        "  <body>",
+    ]
+    for row in rows:
+        domain = _xml_escape(row["domain"])
+        url = _xml_escape(row["feed_url"])
+        lines.append(
+            f'    <outline type="rss" text="{domain}" title="{domain}" xmlUrl="{url}"/>'
+        )
+    lines += ["  </body>", "</opml>"]
+    out_path.write_text("\n".join(lines) + "\n")
+    return len(rows)

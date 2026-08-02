@@ -80,6 +80,10 @@ uv run km extract             # essay/thread/reading-list detection + interest s
 uv run km classify            # AI-categorize tweets (shows cost estimate first)
 uv run km embed               # local embeddings for semantic search
 uv run km export              # regenerate exports/*.md
+uv run km export-vault ~/Vault # write the archive into an Obsidian vault:
+                              # one linked note per item, frontmatter + MOCs
+uv run km export-json         # dump everything to JSONL: items, categories,
+                              # full source provenance. Your data, back out
 uv run km sync                # one continuous-ingestion pass: fresh Chrome history,
                               # new export files, Apple Notes, embeddings, heuristics
 uv run km sync-schedule       # keep the archive current automatically (every 12h)
@@ -95,6 +99,7 @@ uv run km timeline            # life-timeline.md + recurring-threads.md
 uv run km reports             # obsessions, best tweets, reading debt, questions, rhythms
 uv run km rewind 2025         # a year in review: new obsessions, discoveries
 uv run km digest              # on-this-day memories + resurfaced gems
+uv run km feeds-opml          # export discovered RSS feeds as OPML for any reader
 uv run km mentor              # AI psychoanalysis of the whole archive (paid)
 uv run km talk                # ongoing conversation with your archive (paid)
 uv run km ui                  # local web UI at http://127.0.0.1:8765

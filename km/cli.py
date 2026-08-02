@@ -486,6 +486,68 @@ def export() -> None:
         console.print(f"[green]wrote[/green] {path.relative_to(cfg.project_root)}")
 
 
+@app.command(name="export-vault")
+def export_vault_cmd(
+    vault: str = typer.Argument(..., help="Path to your Obsidian vault (or any folder)"),
+    folder: str = typer.Option("km", "--folder", help="Subfolder to create inside the vault"),
+    essays_only: bool = typer.Option(False, "--essays-only", help="Skip bookmarks/saves; essays only"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap the number of notes"),
+) -> None:
+    """Export the archive into an Obsidian vault: one note per item, with
+    frontmatter, tags, and category/domain backlinks."""
+    from pathlib import Path as _Path
+
+    from km.db import get_db
+    from km.exporters.vault import export_vault
+
+    cfg = _cfg()
+    vault_dir = _Path(vault).expanduser()
+    if not vault_dir.exists():
+        console.print(f"[red]No such folder:[/red] {vault_dir}")
+        raise typer.Exit(1)
+    conn = get_db(cfg.db_path)
+    summary = export_vault(
+        conn, vault_dir, folder=folder,
+        include_saved=not essays_only, limit=limit,
+    )
+    console.print(
+        f"[green]wrote[/green] {summary['notes']} notes "
+        f"({summary['categories']} categories, {summary['domains']} domains) "
+        f"to {summary['root']}"
+    )
+    console.print("Open that folder in Obsidian; start at [bold]km-index[/bold].")
+
+
+@app.command(name="export-json")
+def export_json_cmd(
+    out: Optional[str] = typer.Argument(None, help="Output file (default exports/km-archive.jsonl)"),
+    fmt: str = typer.Option("jsonl", "--format", help="jsonl (one item per line) or json (single array)"),
+    include_raw: bool = typer.Option(False, "--include-raw", help="Include each item's original raw payload"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap the number of items"),
+) -> None:
+    """Dump the full archive to JSON/JSONL: every item with its resolved
+    category, user edits, and complete source provenance. Your data, back out."""
+    from pathlib import Path as _Path
+
+    from km.db import get_db
+    from km.exporters.jsonl import export_json
+
+    if fmt not in ("jsonl", "json"):
+        console.print("[red]--format must be jsonl or json[/red]")
+        raise typer.Exit(1)
+    cfg = _cfg()
+    if out:
+        out_path = _Path(out).expanduser()
+    else:
+        out_path = cfg.exports_dir / f"km-archive.{fmt}"
+    conn = get_db(cfg.db_path)
+    summary = export_json(conn, out_path, fmt=fmt, include_raw=include_raw, limit=limit)
+    size_mb = out_path.stat().st_size / 1_048_576
+    console.print(
+        f"[green]wrote[/green] {summary['items']} items to {out_path} ({size_mb:.1f} MB)"
+    )
+
+
 @app.command()
 def embed(
     model: Optional[str] = typer.Option(None, "--model", help="Override the embedding model"),
@@ -795,6 +857,25 @@ def feed(
 
     out = cfg.exports_dir / f"feed-{datetime.now(timezone.utc).date().isoformat()}.md"
     out.write_text("\n".join(lines) + "\n")
+
+
+@app.command(name="feeds-opml")
+def feeds_opml(
+    out: Optional[str] = typer.Option(None, "--out", help="Output path (default exports/feeds.opml)"),
+) -> None:
+    """Export every discovered RSS feed as OPML for any reader."""
+    from km.db import get_db
+    from km.feed import export_opml
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    out_path = Path(out).expanduser() if out else cfg.exports_dir / "feeds.opml"
+    n = export_opml(conn, out_path)
+    if n == 0:
+        console.print("[yellow]No feeds yet; run km feed --refresh first.[/yellow]")
+        return
+    console.print(f"[green]wrote[/green] {n} feeds to {out_path}")
+    console.print("Import it into any RSS reader (Feedly, NetNewsWire, Miniflux, ...).")
 
 
 @app.command(name="discover-similar")
