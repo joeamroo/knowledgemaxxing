@@ -143,9 +143,34 @@ CREATE TABLE IF NOT EXISTS smart_collections(
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS content(
+  item_id INTEGER PRIMARY KEY REFERENCES items(id),
+  text TEXT,
+  word_count INTEGER,
+  fetched_at TEXT,
+  ok INTEGER DEFAULT 1      -- 0: fetch failed or nothing readable there
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
   title, text, content=items, content_rowid=id
 );
+
+CREATE VIRTUAL TABLE IF NOT EXISTS content_fts USING fts5(
+  text, content=content, content_rowid=item_id
+);
+
+CREATE TRIGGER IF NOT EXISTS content_ai AFTER INSERT ON content BEGIN
+  INSERT INTO content_fts(rowid, text) VALUES (new.item_id, coalesce(new.text,''));
+END;
+CREATE TRIGGER IF NOT EXISTS content_ad AFTER DELETE ON content BEGIN
+  INSERT INTO content_fts(content_fts, rowid, text)
+  VALUES ('delete', old.item_id, coalesce(old.text,''));
+END;
+CREATE TRIGGER IF NOT EXISTS content_au AFTER UPDATE OF text ON content BEGIN
+  INSERT INTO content_fts(content_fts, rowid, text)
+  VALUES ('delete', old.item_id, coalesce(old.text,''));
+  INSERT INTO content_fts(rowid, text) VALUES (new.item_id, coalesce(new.text,''));
+END;
 
 CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
   INSERT INTO items_fts(rowid, title, text)

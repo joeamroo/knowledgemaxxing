@@ -2,10 +2,17 @@
 
 vec_items rowids match embedding_chunks rowids; embedding_cache keys
 (item_id, model) with a content hash so nothing is ever re-embedded
-unless its text changes or the model changes.
+unless its text changes or the model changes. embedding_chunks stores
+the chunk text so search can return the exact matching passage.
+
+Switching embedding models changes vector dimensions; ensure_vec_tables
+detects the mismatch and rebuilds the vector table (embedding_cache is
+keyed by model, so everything re-embeds under the new model on the next
+km embed).
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 import struct
 from datetime import datetime, timezone
@@ -20,9 +27,25 @@ def serialize_f32(vector: list[float]) -> bytes:
     return struct.pack(f"{len(vector)}f", *vector)
 
 
+def _existing_vec_dims(conn: sqlite3.Connection) -> Optional[int]:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name='vec_items'"
+    ).fetchone()
+    if not row or not row["sql"]:
+        return None
+    match = re.search(r"float\[(\d+)\]", row["sql"])
+    return int(match.group(1)) if match else None
+
+
 def ensure_vec_tables(conn: sqlite3.Connection, dims: int) -> bool:
     if not try_load_sqlite_vec(conn):
         return False
+    existing = _existing_vec_dims(conn)
+    if existing is not None and existing != dims:
+        # model switch: old vectors are useless at the new dimension count
+        conn.execute("DROP TABLE vec_items")
+        conn.execute("DELETE FROM embedding_chunks")
+        conn.commit()
     conn.execute(
         f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_items USING vec0(embedding float[{dims}])"
     )
@@ -31,9 +54,13 @@ def ensure_vec_tables(conn: sqlite3.Connection, dims: int) -> bool:
              id INTEGER PRIMARY KEY,
              item_id INTEGER NOT NULL REFERENCES items(id),
              chunk_idx INTEGER NOT NULL,
+             text TEXT,
              UNIQUE(item_id, chunk_idx)
            )"""
     )
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(embedding_chunks)")}
+    if "text" not in cols:
+        conn.execute("ALTER TABLE embedding_chunks ADD COLUMN text TEXT")
     return True
 
 
@@ -48,8 +75,10 @@ def embed_pending(
         raise RuntimeError("sqlite-vec is not installed: uv sync --extra embed")
 
     rows = conn.execute(
-        """SELECT i.* FROM items i
+        """SELECT i.*, ct.text AS body
+           FROM items i
            LEFT JOIN embedding_cache c ON c.item_id = i.id AND c.model = ?
+           LEFT JOIN content ct ON ct.item_id = i.id AND ct.ok = 1
            WHERE c.item_id IS NULL""",
         (embedder.model_name,),
     ).fetchall()
@@ -59,7 +88,7 @@ def embed_pending(
     pending: list[tuple[int, int, str]] = []  # (item_id, chunk_idx, text)
     hashes: dict[int, str] = {}
     for row in rows:
-        chunks = content_for_item(row)
+        chunks = content_for_item(row, body=row["body"])
         if not chunks:
             conn.execute(
                 "INSERT OR REPLACE INTO embedding_cache VALUES (?,?,?,?)",
@@ -70,21 +99,22 @@ def embed_pending(
         for idx, chunk in enumerate(chunks):
             pending.append((row["id"], idx, chunk))
 
+    # drop every stale chunk for the items being re-embedded: a shrunk item
+    # must not leave orphan high-idx chunks behind
+    for item_id in {item_id for item_id, _, _ in pending}:
+        for old in conn.execute(
+            "SELECT id FROM embedding_chunks WHERE item_id=?", (item_id,)
+        ).fetchall():
+            conn.execute("DELETE FROM vec_items WHERE rowid=?", (old["id"],))
+        conn.execute("DELETE FROM embedding_chunks WHERE item_id=?", (item_id,))
+
     for start in range(0, len(pending), batch_size):
         batch = pending[start:start + batch_size]
         vectors = embedder.encode([text for _, _, text in batch])
-        for (item_id, chunk_idx, _), vector in zip(batch, vectors):
-            # replace any stale chunk row for this (item, idx)
-            old = conn.execute(
-                "SELECT id FROM embedding_chunks WHERE item_id=? AND chunk_idx=?",
-                (item_id, chunk_idx),
-            ).fetchone()
-            if old:
-                conn.execute("DELETE FROM vec_items WHERE rowid=?", (old["id"],))
-                conn.execute("DELETE FROM embedding_chunks WHERE id=?", (old["id"],))
+        for (item_id, chunk_idx, text), vector in zip(batch, vectors):
             cur = conn.execute(
-                "INSERT INTO embedding_chunks(item_id, chunk_idx) VALUES (?,?)",
-                (item_id, chunk_idx),
+                "INSERT INTO embedding_chunks(item_id, chunk_idx, text) VALUES (?,?,?)",
+                (item_id, chunk_idx, text),
             )
             conn.execute(
                 "INSERT INTO vec_items(rowid, embedding) VALUES (?,?)",
@@ -140,15 +170,28 @@ def similar_items(
 
 def vector_search(
     conn: sqlite3.Connection, query_vector: list[float], limit: int = 100
-) -> list[tuple[int, float]]:
-    """Return [(item_id, distance)] nearest chunks, deduped per item."""
+) -> list[dict]:
+    """Nearest chunks deduped per item, best chunk kept.
+
+    Returns [{"item_id", "distance", "passage"}] best-first; passage is
+    the text of the closest matching chunk (None for pre-migration rows).
+    """
     rows = conn.execute(
-        """SELECT c.item_id, min(v.distance) AS distance
+        """SELECT c.item_id, v.distance, c.text
            FROM (
              SELECT rowid, distance FROM vec_items
              WHERE embedding MATCH ? AND k = ?
            ) v JOIN embedding_chunks c ON c.id = v.rowid
-           GROUP BY c.item_id ORDER BY distance""",
+           ORDER BY v.distance""",
         (serialize_f32(query_vector), limit * 2),
     ).fetchall()
-    return [(r["item_id"], r["distance"]) for r in rows[:limit]]
+    out: list[dict] = []
+    seen: set[int] = set()
+    for r in rows:
+        if r["item_id"] in seen:
+            continue
+        seen.add(r["item_id"])
+        out.append({"item_id": r["item_id"], "distance": r["distance"], "passage": r["text"]})
+        if len(out) >= limit:
+            break
+    return out

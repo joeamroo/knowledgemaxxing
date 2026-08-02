@@ -130,3 +130,28 @@ def keyword_search(
         (_fts_escape(query), *params, limit),
     ).fetchall()
     return [(r["id"], r["rank"]) for r in rows]
+
+
+def content_keyword_search(
+    conn: sqlite3.Connection,
+    query: str,
+    filters: Optional[Filters] = None,
+    limit: int = 100,
+) -> list[tuple[int, float, str]]:
+    """BM25 over fetched article bodies (content_fts). Returns
+    [(item_id, rank, passage_snippet)] best-first; empty when nothing
+    has been fetched yet."""
+    filters = filters or Filters()
+    where_sql, params = filters.sql()
+    try:
+        rows = conn.execute(
+            f"""SELECT i.id, bm25(content_fts) AS rank,
+                       snippet(content_fts, 0, '', '', ' ... ', 40) AS snip
+                FROM content_fts f JOIN items i ON i.id = f.rowid
+                WHERE content_fts MATCH ? AND {where_sql}
+                ORDER BY rank LIMIT ?""",
+            (_fts_escape(query), *params, limit),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []  # pre-migration DB without content_fts
+    return [(r["id"], r["rank"], r["snip"]) for r in rows]

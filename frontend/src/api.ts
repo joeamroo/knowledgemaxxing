@@ -15,6 +15,7 @@ export type Item = {
   starred: boolean;
   archived: boolean;
   note: string | null;
+  passage?: string;
   sources: string[];
   occurrences?: { kind: string; occurred_at: string | null; detail: string | null; source_kind: string }[];
 };

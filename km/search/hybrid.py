@@ -1,11 +1,18 @@
-"""Hybrid retrieval: FTS5 BM25 + vector cosine, merged with reciprocal
-rank fusion. Filters compose with both legs."""
+"""Hybrid retrieval: three legs merged with reciprocal rank fusion.
+
+1. BM25 over item titles/text (items_fts)
+2. BM25 over fetched article bodies (content_fts), passage snippets kept
+3. Vector cosine over passage chunks, matching chunk text kept
+
+Filters compose with every leg. Results carry the best matching passage
+so "find that paragraph I read somewhere" answers with the paragraph.
+"""
 from __future__ import annotations
 
 import sqlite3
 from typing import Optional
 
-from km.search.keyword import Filters, keyword_search
+from km.search.keyword import Filters, content_keyword_search, keyword_search
 
 RRF_K = 60
 
@@ -41,25 +48,54 @@ def hybrid_search(
     filters: Optional[Filters] = None,
     k: int = 20,
     candidate_pool: int = 100,
+    passages: Optional[dict] = None,
 ) -> list[tuple[int, float]]:
     """Return [(item_id, rrf_score)] top-k. Falls back to keyword-only
-    when no embedder or no vector table is available."""
+    when no embedder or no vector table is available.
+
+    Pass a dict as `passages` to receive {item_id: matching passage text}
+    for every hit where a specific passage matched (vector chunk or
+    article-body snippet). Vector passages win: they are the semantic
+    match the query actually landed on.
+    """
     filters = filters or Filters()
     keyword_ids = [item_id for item_id, _ in keyword_search(conn, query, filters, candidate_pool)]
 
+    content_hits = content_keyword_search(conn, query, filters, candidate_pool)
+    content_ids = [item_id for item_id, _, _ in content_hits]
+
     vector_ids: list[int] = []
+    vector_passages: dict[int, str] = {}
     if embedder is not None:
         from km.embedding.store import ensure_vec_tables, vector_search
 
         if ensure_vec_tables(conn, embedder.dims):
             raw = vector_search(conn, embedder.encode_query(query), candidate_pool)
-            vector_ids = _apply_filters(conn, [item_id for item_id, _ in raw], filters)
+            allowed = set(_apply_filters(conn, [h["item_id"] for h in raw], filters))
+            for hit in raw:
+                if hit["item_id"] in allowed:
+                    vector_ids.append(hit["item_id"])
+                    if hit["passage"]:
+                        vector_passages[hit["item_id"]] = hit["passage"]
 
-    merged = rrf_merge([lst for lst in (keyword_ids, vector_ids) if lst])
+    if passages is not None:
+        # exact-term snippets read better than a whole semantic chunk, so the
+        # content-FTS passage wins when both legs hit the same item
+        for item_id, passage in vector_passages.items():
+            passages.setdefault(item_id, passage)
+        for item_id, _, snip in content_hits:
+            if snip:
+                passages[item_id] = snip
+
+    merged = rrf_merge([lst for lst in (keyword_ids, content_ids, vector_ids) if lst])
     return merged[:k]
 
 
-def fetch_results(conn: sqlite3.Connection, scored: list[tuple[int, float]]) -> list[dict]:
+def fetch_results(
+    conn: sqlite3.Connection,
+    scored: list[tuple[int, float]],
+    passages: Optional[dict] = None,
+) -> list[dict]:
     out = []
     for item_id, score in scored:
         row = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
@@ -82,13 +118,16 @@ def fetch_results(conn: sqlite3.Connection, scored: list[tuple[int, float]]) -> 
             )
         ]
         text = row["text"] or ""
+        passage = (passages or {}).get(item_id)
+        snippet = passage or (text[:280] + ("..." if len(text) > 280 else ""))
         out.append(
             {
                 "id": item_id,
                 "score": score,
                 "kind": row["kind"],
                 "title": row["title"],
-                "snippet": text[:280] + ("..." if len(text) > 280 else ""),
+                "snippet": snippet[:600],
+                "passage": passage,
                 "url": row["url"],
                 "domain": row["domain"],
                 "created_at": row["created_at"],

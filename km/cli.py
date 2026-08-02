@@ -548,6 +548,49 @@ def export_json_cmd(
     )
 
 
+@app.command(name="fetch-content")
+def fetch_content_cmd(
+    limit: Optional[int] = typer.Option(None, "--limit", help="Cap how many pages to fetch"),
+    everything: bool = typer.Option(
+        False, "--all", help="Every URL item, not just essays/reading list/saves"),
+    workers: int = typer.Option(8, "--workers", help="Concurrent fetches"),
+) -> None:
+    """Fetch readable article text for the pages you saved or read, so
+    search can find the exact passage, not just the title. Cached, polite,
+    resumable. Run km embed afterwards to index the new text."""
+    from km.db import get_db
+    from km.fetch_content import candidates, fetch_content
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    todo = len(candidates(conn, limit=limit, everything=everything))
+    if not todo:
+        console.print("[green]Nothing to fetch; content is up to date.[/green]")
+        return
+    console.print(f"Fetching readable text for {todo} pages ({workers} workers)...")
+    counters = fetch_content(
+        conn, cfg, limit=limit, everything=everything, workers=workers,
+        progress=lambda done, total, c: console.print(
+            f"  {done}/{total} (got {c['fetched']}, empty {c['empty']}, errors {c['errors']})",
+            end="\r"),
+    )
+    console.print(
+        f"\n[green]{counters['fetched']} articles stored[/green] "
+        f"({counters['empty']} had no readable text, {counters['errors']} failed)."
+    )
+    if counters["fetched"]:
+        console.print("Now run [bold]km embed[/bold] to make the new text searchable.")
+
+
+@app.command()
+def mcp() -> None:
+    """Serve the archive to Claude over MCP (stdio). Register with:
+    claude mcp add km -- uv run --directory <this repo> km mcp"""
+    from km.mcp_server import serve
+
+    serve(_cfg())
+
+
 @app.command()
 def embed(
     model: Optional[str] = typer.Option(None, "--model", help="Override the embedding model"),
@@ -624,11 +667,12 @@ def ask(
         console.print(f"[yellow]{exc}; keyword-only retrieval.[/yellow]")
 
     pool = 50 if ai else k
+    passages: dict = {}
     scored = hybrid_search(
         conn, query, embedder, _parse_filters(category, source, domain),
-        k=pool, candidate_pool=100,
+        k=pool, candidate_pool=100, passages=passages,
     )
-    results = fetch_results(conn, scored)
+    results = fetch_results(conn, scored, passages=passages)
 
     if ai and results:
         from km.classify.client import get_client
@@ -657,7 +701,9 @@ def _print_results(results: list[dict]) -> None:
         label = r["title"] or (r["snippet"][:80] if r["snippet"] else r["url"])
         cat = f" [{r['category']}]" if r.get("category") else ""
         console.print(f"[bold]{label}[/bold]{cat} [dim]({r['kind']}, {', '.join(r['sources'])})[/dim]")
-        if r["snippet"] and r["title"]:
+        if r.get("passage"):
+            console.print(f"  [italic]“{r['passage'][:300].strip()}”[/italic]")
+        elif r["snippet"] and r["title"]:
             console.print(f"  {r['snippet'][:160]}")
         console.print(f"  [blue]{r['url'] or ''}[/blue] [dim]{(r['created_at'] or '')[:10]}[/dim]")
 

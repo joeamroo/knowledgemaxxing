@@ -494,6 +494,12 @@ function Row({ item, focused, selected, onSelect, onOpen, onChipClick }: {
           <span className="font-mono-data ml-1.5" style={{ color: "var(--ink-faint)" }}>@{item.author}</span>
         )}
         {item.is_thread && <span className="ml-1.5 text-[10px]" title="thread">⧉</span>}
+        {item.passage && (
+          <div className="truncate pl-[18px] text-[12px] italic" style={{ color: "var(--ink-dim)" }}
+            title={item.passage}>
+            “{item.passage}”
+          </div>
+        )}
       </td>
       <td className="px-2 py-2">
         {item.category && (

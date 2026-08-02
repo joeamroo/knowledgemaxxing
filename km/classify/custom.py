@@ -68,7 +68,8 @@ def assign_local(conn: sqlite3.Connection, cfg, slug: str,
     hits = vector_search(conn, vec, limit=limit)
     now = datetime.now(timezone.utc).isoformat()
     assigned = 0
-    for item_id, distance in hits:
+    for hit in hits:
+        item_id, distance = hit["item_id"], hit["distance"]
         if distance > max_distance:
             continue
         conn.execute(

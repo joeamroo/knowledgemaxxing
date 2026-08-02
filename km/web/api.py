@@ -163,10 +163,12 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
 
             q, filters = parse_query(q, filters)
         if q:
+            passages: dict = {}
             if mode in ("semantic", "hybrid"):
                 embedder = _embedder_or_none() if mode != "keyword" else None
                 scored = hybrid_search(conn, q, embedder, filters, k=cursor + page_size,
-                                       candidate_pool=max(200, cursor + page_size))
+                                       candidate_pool=max(200, cursor + page_size),
+                                       passages=passages)
             else:
                 scored = keyword_search(conn, q, filters, limit=cursor + page_size)
             page = scored[cursor:cursor + page_size]
@@ -174,7 +176,10 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
             for item_id, _ in page:
                 row = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
                 if row:
-                    items.append(_item_dict(conn, row))
+                    d = _item_dict(conn, row)
+                    if passages.get(item_id):
+                        d["passage"] = passages[item_id][:600]
+                    items.append(d)
             return {"items": items, "next_cursor": cursor + page_size if len(page) == page_size else None}
 
         where_sql, params = filters.sql()
@@ -447,8 +452,10 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         filters = Filters(source=req.source, category=req.category, domain=req.domain)
         embedder = _embedder_or_none()
         pool = 50 if req.ai else req.k
-        scored = hybrid_search(conn, req.query, embedder, filters, k=pool, candidate_pool=100)
-        candidates = fetch_results(conn, scored)
+        passages: dict = {}
+        scored = hybrid_search(conn, req.query, embedder, filters, k=pool,
+                               candidate_pool=100, passages=passages)
+        candidates = fetch_results(conn, scored, passages=passages)
         if req.ai and candidates and cfg.anthropic_api_key:
             from km.classify.client import get_client
             from km.search.rerank import rerank

@@ -61,7 +61,7 @@ classification:
 
 embedding:
   backend: local           # local | api
-  model: BAAI/bge-small-en-v1.5   # or BAAI/bge-m3 for quality
+  model: BAAI/bge-base-en-v1.5    # 768-dim; switching models re-embeds everything
   api_provider: ""         # voyage | openai, only if backend: api
 
 grok_export_path: ""       # path to a Grok JSON/markdown export if you have one

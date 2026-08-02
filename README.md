@@ -78,7 +78,10 @@ uv run km fetch x-bookmarks   # scrape X bookmarks (headed, slow, careful)
 uv run km fetch all           # all of the above
 uv run km extract             # essay/thread/reading-list detection + interest scores
 uv run km classify            # AI-categorize tweets (shows cost estimate first)
-uv run km embed               # local embeddings for semantic search
+uv run km fetch-content       # fetch readable article text for essays and saves,
+                              # so search finds the passage, not just the title
+uv run km embed               # local embeddings for semantic search (passage-level,
+                              # with the fetched article bodies included)
 uv run km export              # regenerate exports/*.md
 uv run km export-vault ~/Vault # write the archive into an Obsidian vault:
                               # one linked note per item, frontmatter + MOCs
@@ -106,6 +109,8 @@ uv run km talk                # ongoing conversation with your archive (paid)
 uv run km ui                  # local web UI at http://127.0.0.1:8765
 uv run km ui --read-only      # demo/share mode: browsing and search only,
                               # editing and AI disabled (server-enforced)
+uv run km mcp                 # serve the archive to Claude over MCP; register:
+                              # claude mcp add km -- uv run --directory <repo> km mcp
 ```
 
 Offline analytics (`reports`, `rewind`, `timeline`, `rhythms` inside

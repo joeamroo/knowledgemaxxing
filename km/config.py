@@ -48,7 +48,9 @@ class ClassificationConfig(BaseModel):
 
 class EmbeddingConfig(BaseModel):
     backend: str = "local"
-    model: str = "BAAI/bge-small-en-v1.5"
+    # bge-base: 768-dim, meaningfully better passage recall than bge-small.
+    # Changing this triggers an automatic vector-table rebuild + re-embed.
+    model: str = "BAAI/bge-base-en-v1.5"
     api_provider: str = ""
 
 

@@ -18,7 +18,7 @@ class Embedder(Protocol):
 
 
 class LocalEmbedder:
-    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5") -> None:
+    def __init__(self, model_name: str = "BAAI/bge-base-en-v1.5") -> None:
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:
