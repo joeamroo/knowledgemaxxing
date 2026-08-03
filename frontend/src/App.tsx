@@ -5,7 +5,6 @@ import { CompanionPage } from "./Companion";
 import { FeedPage } from "./Feed";
 import { Onboarding } from "./Onboarding";
 import { TasksPanel } from "./Tasks";
-import { AskPanel } from "./Ask";
 import { CATEGORY_LABELS, KIND_GLYPHS, KIND_LABELS, SOURCE_LABELS, catStyle } from "./categories";
 import { Drawer } from "./Drawer";
 import { StatsPage } from "./Stats";
@@ -47,7 +46,6 @@ export default function App() {
   const [queryInput, setQueryInput] = useState(params.q ?? "");
   const query = useDebounced(queryInput);
   const [drawerItem, setDrawerItem] = useState<number | null>(null);
-  const [askOpen, setAskOpen] = useState(false);
   const [todayOpen, setTodayOpen] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [focusRow, setFocusRow] = useState(0);
@@ -56,7 +54,7 @@ export default function App() {
   const metaQuery = useQuery({ queryKey: ["meta"], queryFn: fetchMeta, staleTime: Infinity });
   const readOnly = metaQuery.data?.read_only ?? false;
 
-  const mode = params.mode ?? "hybrid";
+  const mode = params.mode ?? "keyword";
   useEffect(() => setParams({ q: query || undefined }), [query]);
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -163,9 +161,9 @@ export default function App() {
             itemsQuery.refetch()
           )
         );
-      } else if (e.key === "a") { e.preventDefault(); setAskOpen(true); }
+      } else if (e.key === "a") { e.preventDefault(); setPage("companion"); }
       else if (e.key === "Escape") {
-        setDrawerItem(null); setAskOpen(false); setTasksOpen(false); setTodayOpen(false);
+        setDrawerItem(null); setTasksOpen(false); setTodayOpen(false);
       }
     };
     window.addEventListener("keydown", handler);
@@ -222,7 +220,7 @@ export default function App() {
         <div className="mb-1 flex gap-1 px-3">
           {(readOnly
             ? ([["table", "Archive"], ["feed", "Feed"]] as const)
-            : ([["table", "Archive"], ["feed", "Feed"], ["companion", "Companion"]] as const)
+            : ([["table", "Archive"], ["feed", "Feed"], ["companion", "AI Chat"]] as const)
           ).map(
             ([key, label]) => (
               <button key={key} onClick={() => setPage(key)}
@@ -446,7 +444,12 @@ export default function App() {
             ))}
           </div>
           {!readOnly && (
-            <button onClick={() => setAskOpen(true)}
+            <button
+              onClick={() => {
+                setCompanionSeed(queryInput.trim() ? queryInput.trim() + "\n\n" : null);
+                setPage("companion");
+              }}
+              title="Open the AI chat (seeds your current search)"
               className="btn-accent shrink-0 rounded-md px-3.5 py-2 text-[12.5px]">
               Ask ✦
             </button>
@@ -516,7 +519,9 @@ export default function App() {
             </table>
             {itemsQuery.isFetching && (
               <div className="p-5 text-center text-[12px]" style={{ color: "var(--ink-faint)" }}>
-                turning pages...
+                {query && mode !== "keyword"
+                  ? "semantic pass over the whole archive (600k+ passages, ~10s)..."
+                  : "turning pages..."}
               </div>
             )}
             {!itemsQuery.isFetching && items.length === 0 && (
@@ -548,10 +553,6 @@ export default function App() {
             setDrawerItem(null);
             setPage("companion");
           }} />
-      )}
-      {askOpen && (
-        <AskPanel onClose={() => setAskOpen(false)} onOpenItem={(id) => setDrawerItem(id)}
-          filters={{ source: params.source, category: params.category, domain: params.domain }} />
       )}
       {todayOpen && <TodayPanel onClose={() => setTodayOpen(false)} />}
       {tasksOpen && <TasksPanel onClose={() => setTasksOpen(false)} />}
