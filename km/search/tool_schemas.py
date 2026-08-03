@@ -27,6 +27,51 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "deep_search",
+        "description": (
+            "The heavy retrieval tool for finding things BY MEANING in a huge "
+            "corpus: runs several query phrasings through all retrieval legs "
+            "with candidate pools of hundreds, then a local cross-encoder "
+            "rereads each (query, passage) pair and rescores. Use this "
+            "(not search_archive) when the user half-remembers an essay or "
+            "idea, when a first search missed, or for 'all my essays about X'. "
+            "Slower than search_archive but far higher recall and precision; "
+            "costs no API money. Returns items with passages, best first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Rich natural-language description of the meaning sought"},
+                "k": {"type": "integer", "description": "Max results (default 25)"},
+                "essays_only": {"type": "boolean", "description": "Long-form articles only"},
+                "kind": {"type": "string"},
+                "domain": {"type": "string"},
+                "date_from": {"type": "string"},
+                "date_to": {"type": "string"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "map_topics",
+        "description": (
+            "Semantic overview instead of a search: clusters the matching "
+            "slice of the corpus (or all essays when no query) into labeled "
+            "topic groups with exemplar items. Use for 'what do I have "
+            "about X', 'what are my essays actually about', or to orient "
+            "before a deep dive. All local."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Optional focus, e.g. 'artificial intelligence'"},
+                "essays_only": {"type": "boolean", "description": "Default true"},
+                "n_clusters": {"type": "integer", "description": "Topic groups (default 6)"},
+                "sample": {"type": "integer", "description": "Items to cluster (default 400)"},
+            },
+        },
+    },
+    {
         "name": "get_item",
         "description": (
             "Fetch one archive item in full by id (from search_archive or "

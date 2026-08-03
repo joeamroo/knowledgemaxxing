@@ -31,9 +31,15 @@ answer by actually looking: use the tools, then ground every claim in what came 
 back.
 
 How to work:
-- Half-remembered passage or idea: search_archive with a natural-language \
-description. Try a second phrasing if the first misses; vary the wording, not \
-just the keywords. Quote the matching passage back and give the url.
+- Quick lookups (a title, a name, an exact phrase): search_archive.
+- Finding BY MEANING (half-remembered essay or idea, "everything I read \
+about X"): go straight to deep_search with a rich description of the meaning; \
+it fans out phrasings and reranks locally, so one call beats several retried \
+searches. If even deep_search misses, re-describe the MEANING differently \
+(the situation, the claim, the feeling) rather than swapping keywords. Quote \
+the matching passage back and give the url.
+- Orienting in a big corpus ("what do I even have about X"): map_topics first, \
+then deep_search into the interesting cluster.
 - "Make me a list": list_items with filters (or several searches), then present \
 a clean markdown list of titles with urls and dates. Offer to save_collection \
 (pins it in their sidebar) or export_list (writes a markdown file) when the \

@@ -92,6 +92,9 @@ uv run km sync                # one continuous-ingestion pass: fresh Chrome hist
                               # new export files, Apple Notes, embeddings, heuristics
 uv run km sync-schedule       # keep the archive current automatically (every 12h)
 uv run km search "spaced repetition site:gwern.net before:2022"
+                              # the chat and MCP tools go deeper: deep_search
+                              # fans out phrasings + local cross-encoder rerank;
+                              # map_topics clusters the corpus into named groups
 uv run km ask "tweet about contradictory advice pairs" --ai
 uv run km reflect             # AI reflection on your last 30 days (paid)
 uv run km wrapped 2025 --ai   # shareable year-in-review page with an AI epilogue

@@ -359,8 +359,8 @@ def fetch_page(cfg, conn: sqlite3.Connection, id: int) -> dict:
 # ── unified dispatch: one map for the agent and the MCP server ──
 
 READ_TOOLS = {
-    "search_archive", "get_item", "list_items", "archive_stats",
-    "similar_items", "get_tasks", "get_reading_feed",
+    "search_archive", "deep_search", "map_topics", "get_item", "list_items",
+    "archive_stats", "similar_items", "get_tasks", "get_reading_feed",
 }
 
 
@@ -368,6 +368,14 @@ def run_tool(name: str, conn: sqlite3.Connection, cfg, embedder, args: dict):
     """Execute one archive tool by name. Raises KeyError for unknown names."""
     if name == "search_archive":
         return search_archive(conn, embedder, **args)
+    if name == "deep_search":
+        from km.search.deep import deep_search
+
+        return deep_search(conn, embedder, **args)
+    if name == "map_topics":
+        from km.search.topics import map_topics
+
+        return map_topics(conn, embedder, **args)
     if name == "get_item":
         return get_item(conn, **args)
     if name == "list_items":
