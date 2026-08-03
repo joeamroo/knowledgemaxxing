@@ -89,6 +89,40 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "get_items",
+        "description": (
+            "Bulk fetch: full text of up to 50 items in one call, any kind. "
+            "After rostering tweets/notes/saves with list_items or a search, "
+            "pull all their texts at once instead of one get_item per item."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ids": {"type": "array", "items": {"type": "integer"}, "description": "Item ids (max 50)"},
+                "max_chars_each": {"type": "integer", "description": "Per-item text cap (default 2000)"},
+            },
+            "required": ["ids"],
+        },
+    },
+    {
+        "name": "period_summary",
+        "description": (
+            "One-call orientation for a date window across EVERY artifact "
+            "kind: counts by kind and month, top domains and categories, all "
+            "search queries and chat conversations in the window (with ids). "
+            "The starting move for 'what was going on with me between X and "
+            "Y' before drilling in with list_items / get_chat_messages."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date_from": {"type": "string", "description": "ISO date, inclusive"},
+                "date_to": {"type": "string", "description": "ISO date, inclusive"},
+            },
+            "required": ["date_from", "date_to"],
+        },
+    },
+    {
         "name": "get_chat_messages",
         "description": (
             "Structured messages of one AI chat conversation (ChatGPT/Claude "

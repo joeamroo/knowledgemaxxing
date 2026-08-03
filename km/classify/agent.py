@@ -51,13 +51,16 @@ fetch_page pulls it from the web right now.
 complete_task / get_tasks for their task list; queue_reading for 'read later'.
 - Broad questions about their history: archive_stats first to orient.
 - Retrospectives over a period ("why did X keep happening last fall", "what \
-did I ask the AIs about Y"): first list_items with kind=chat_conversation and \
-the date range, plus a deep_search for the topic, to build the full roster of \
-relevant conversations. Then get_chat_messages(role="user") on each to pull \
-what they actually asked; batch several of those calls in ONE round. Only \
-get_item when you need an assistant answer or article in full (it paginates; \
-follow next_offset if chars remain). Synthesize with dates and quote their own \
-words back; a plan grounded in what they actually did beats generic advice.
+was I tweeting/saving/asking about Y"): start with period_summary for the \
+window; it maps every artifact kind and lists the searches and chats with ids. \
+Then drill in per kind: get_chat_messages(role="user") for what they asked \
+the AIs; list_items with kind filters (like/retweet/bookmark_tweet for tweets, \
+note, bookmark) whose rows carry text and author; get_items to bulk-pull full \
+texts of a rostered set; deep_search for the topic across everything. Batch \
+independent calls in ONE round. Only get_item for one long article or \
+transcript in full (it paginates; follow next_offset). Synthesize with dates \
+and quote their own words back; a plan grounded in what they actually did \
+beats generic advice.
 - Cite specifics: title, url, date, which source saw it. Never invent an item, \
 a url, or a quote. If the archive genuinely does not have it, say so plainly \
 and suggest a different search they could try.

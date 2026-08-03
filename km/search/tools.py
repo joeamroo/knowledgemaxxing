@@ -199,7 +199,7 @@ def list_items(
     where_sql, params = filters.sql()
     order = _SORTS.get(sort, _SORTS["recent"])
     rows = conn.execute(
-        f"""SELECT i.id, i.kind, i.title, i.text, i.url, i.domain,
+        f"""SELECT i.id, i.kind, i.title, i.text, i.author, i.url, i.domain,
                    i.created_at, i.interest_score
             FROM items i WHERE {where_sql}
             ORDER BY {order} NULLS LAST LIMIT ?""",
@@ -209,7 +209,11 @@ def list_items(
         {
             "id": r["id"],
             "kind": r["kind"],
-            "title": r["title"] or (r["text"] or "")[:100] or None,
+            "title": r["title"],
+            # tweets, notes, and search queries ARE their text: return enough
+            # of it that a roster is readable without a fetch per item
+            "text": (r["text"] or "")[:300] or None,
+            "author": r["author"],
             "url": r["url"],
             "domain": r["domain"],
             "first_seen": (r["created_at"] or "")[:10] or None,
@@ -217,6 +221,105 @@ def list_items(
         }
         for r in rows
     ]
+
+
+def get_items(
+    conn: sqlite3.Connection,
+    ids: list[int],
+    max_chars_each: int = 2000,
+) -> dict:
+    """Bulk fetch: full text of up to 50 items in one call, any kind.
+
+    The batch equivalent of get_item for retrospectives: after rostering
+    tweets/notes/searches with list_items or a search, pull all their
+    full texts at once instead of one round-trip per item."""
+    out, missing = [], []
+    for item_id in list(ids)[:50]:
+        row = conn.execute(
+            """SELECT id, kind, title, text, author, url, domain, created_at
+               FROM items WHERE id=?""",
+            (int(item_id),),
+        ).fetchone()
+        if not row:
+            missing.append(int(item_id))
+            continue
+        text = row["text"] or ""
+        out.append({
+            "id": row["id"],
+            "kind": row["kind"],
+            "title": row["title"],
+            "text": text[:max_chars_each] or None,
+            "truncated": len(text) > max_chars_each,
+            "author": row["author"],
+            "url": row["url"],
+            "domain": row["domain"],
+            "first_seen": (row["created_at"] or "")[:10] or None,
+        })
+    result = {"items": out, "returned": len(out)}
+    if missing:
+        result["missing_ids"] = missing
+    if len(ids) > 50:
+        result["note"] = f"capped at 50 of {len(ids)} requested ids"
+    return result
+
+
+def period_summary(
+    conn: sqlite3.Connection,
+    date_from: str,
+    date_to: str,
+) -> dict:
+    """One-call orientation for a time window, across every artifact kind:
+    what they tweeted/saved/searched/read, where, and about what. The
+    starting move for any 'what was going on with me between X and Y'."""
+    window = "created_at >= ? AND created_at <= ?"
+    params = (date_from, date_to)
+
+    total = conn.execute(
+        f"SELECT count(*) c FROM items WHERE {window}", params).fetchone()["c"]
+    by_kind = dict(conn.execute(
+        f"""SELECT kind, count(*) c FROM items WHERE {window}
+            GROUP BY kind ORDER BY c DESC""", params).fetchall())
+    top_domains = dict(conn.execute(
+        f"""SELECT domain, count(*) c FROM items
+            WHERE {window} AND domain IS NOT NULL
+            GROUP BY domain ORDER BY c DESC LIMIT 12""", params).fetchall())
+    top_categories = dict(conn.execute(
+        f"""SELECT coalesce(u.category_override, c.category) cat, count(*) n
+            FROM items i
+            JOIN classifications c ON c.item_id = i.id
+            LEFT JOIN user_edits u ON u.item_id = i.id
+            WHERE i.{window}
+            GROUP BY cat ORDER BY n DESC LIMIT 10""", params).fetchall())
+    searches = [
+        {"id": r["id"], "query": (r["text"] or "")[:120],
+         "date": (r["created_at"] or "")[:10]}
+        for r in conn.execute(
+            f"""SELECT id, text, created_at FROM items
+                WHERE {window} AND kind='search_query'
+                ORDER BY created_at LIMIT 40""", params)
+    ]
+    chats = [
+        {"id": r["id"], "title": r["title"], "date": (r["created_at"] or "")[:10]}
+        for r in conn.execute(
+            f"""SELECT id, title, created_at FROM items
+                WHERE {window} AND kind='chat_conversation'
+                ORDER BY created_at LIMIT 40""", params)
+    ]
+    by_month = dict(conn.execute(
+        f"""SELECT substr(created_at, 1, 7) m, count(*) c FROM items
+            WHERE {window} GROUP BY m ORDER BY m""", params).fetchall())
+    return {
+        "window": {"from": date_from, "to": date_to},
+        "total_items": total,
+        "by_kind": by_kind,
+        "by_month": by_month,
+        "top_domains": top_domains,
+        "top_categories": top_categories,
+        "search_queries": searches,
+        "chat_conversations": chats,
+        "note": "use list_items/get_items for tweets and saves in this window; "
+                "get_chat_messages for any chat listed above",
+    }
 
 
 def archive_stats(conn: sqlite3.Connection) -> dict:
@@ -442,8 +545,9 @@ def fetch_page(cfg, conn: sqlite3.Connection, id: int) -> dict:
 # ── unified dispatch: one map for the agent and the MCP server ──
 
 READ_TOOLS = {
-    "search_archive", "deep_search", "map_topics", "get_item", "get_chat_messages",
-    "list_items", "archive_stats", "similar_items", "get_tasks", "get_reading_feed",
+    "search_archive", "deep_search", "map_topics", "get_item", "get_items",
+    "get_chat_messages", "list_items", "period_summary", "archive_stats",
+    "similar_items", "get_tasks", "get_reading_feed",
 }
 
 
@@ -461,8 +565,12 @@ def run_tool(name: str, conn: sqlite3.Connection, cfg, embedder, args: dict):
         return map_topics(conn, embedder, **args)
     if name == "get_item":
         return get_item(conn, **args)
+    if name == "get_items":
+        return get_items(conn, **args)
     if name == "get_chat_messages":
         return get_chat_messages(conn, **args)
+    if name == "period_summary":
+        return period_summary(conn, **args)
     if name == "list_items":
         return list_items(conn, **args)
     if name == "archive_stats":
