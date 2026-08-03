@@ -71,6 +71,62 @@ def _label(titles: list[str], global_counts: Counter) -> str:
     return " / ".join(w for w, _ in scored[:3]) or "misc"
 
 
+def generate_auto_collections(
+    conn: sqlite3.Connection,
+    embedder,
+    n_clusters: int = 10,
+    sample: int = 600,
+    min_size: int = 5,
+) -> dict:
+    """Cluster the corpus and persist each topic as a smart collection.
+
+    Auto collections carry {"auto": true} in their spec and are wholesale
+    replaced on regeneration; hand-made collections are never touched.
+    Each collection's spec is a semantic query built from the cluster
+    label, so clicking one runs a live search rather than freezing a
+    snapshot of item ids.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    result = map_topics(conn, embedder, essays_only=False,
+                        n_clusters=n_clusters, sample=sample)
+    if "error" in result:
+        return result
+
+    kept = []
+    for cluster in result["clusters"]:
+        if cluster["count"] < min_size or cluster["label"] == "misc":
+            continue
+        kept.append(cluster)
+
+    # replace prior autos only
+    for row in conn.execute("SELECT id, spec FROM smart_collections").fetchall():
+        try:
+            if json.loads(row["spec"]).get("auto"):
+                conn.execute("DELETE FROM smart_collections WHERE id=?", (row["id"],))
+        except (ValueError, TypeError):
+            continue
+
+    now = datetime.now(timezone.utc).isoformat()
+    created = []
+    for cluster in kept:
+        name = cluster["label"].replace(" / ", " · ")[:60]
+        spec = {
+            "query": cluster["label"].replace(" / ", " "),
+            "mode": "semantic",
+            "filters": {},
+            "auto": True,
+            "size_at_generation": cluster["count"],
+        }
+        cur = conn.execute(
+            "INSERT INTO smart_collections(name, spec, created_at) VALUES (?,?,?)",
+            (name, json.dumps(spec), now))
+        created.append({"id": cur.lastrowid, "name": name, "count": cluster["count"]})
+    conn.commit()
+    return {"created": created, "sampled": result["sampled"]}
+
+
 def map_topics(
     conn: sqlite3.Connection,
     embedder,

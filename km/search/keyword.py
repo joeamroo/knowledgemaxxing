@@ -16,6 +16,7 @@ class Filters:
     date_to: Optional[str] = None
     starred: Optional[bool] = None
     is_essay: Optional[bool] = None
+    is_thread: Optional[bool] = None
     in_reading_list: Optional[bool] = None
     archived: Optional[bool] = False  # default: hide archived
 
@@ -31,6 +32,8 @@ class Filters:
             where.append("i.created_at <= ?"); params.append(self.date_to)
         if self.is_essay is not None:
             where.append("i.is_essay = ?"); params.append(1 if self.is_essay else 0)
+        if self.is_thread is not None:
+            where.append("i.is_thread = ?"); params.append(1 if self.is_thread else 0)
         if self.in_reading_list is not None:
             where.append("i.in_reading_list = ?"); params.append(1 if self.in_reading_list else 0)
         if self.category:

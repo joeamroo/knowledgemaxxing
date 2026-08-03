@@ -66,7 +66,7 @@ export default function App() {
     kind: params.kind, source: params.source, category: params.category,
     domain: params.domain, date_from: params.date_from, date_to: params.date_to,
     starred: params.starred, is_essay: params.is_essay,
-    in_reading_list: params.in_reading_list,
+    in_reading_list: params.in_reading_list, is_thread: params.is_thread,
   };
   const activeFilters = Object.entries(filterParams).filter(([, v]) => v);
 
@@ -98,12 +98,38 @@ export default function App() {
   const [companionSeed, setCompanionSeed] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const statsQuery = useQuery({ queryKey: ["stats"], queryFn: fetchStats });
+  const [topicsBusy, setTopicsBusy] = useState(false);
   const collectionsQuery = useQuery({
     queryKey: ["collections"],
     queryFn: () => fetch("/api/collections").then((r) => r.json()) as Promise<{
-      collections: { id: number; name: string; spec: { query?: string; filters?: Record<string, string> } }[];
+      collections: { id: number; name: string; spec: { query?: string; mode?: string; auto?: boolean; filters?: Record<string, string> } }[];
     }>,
   });
+  const allCollections = collectionsQuery.data?.collections ?? [];
+  const savedCollections = allCollections.filter((c) => !c.spec.auto);
+  const autoCollections = allCollections.filter((c) => c.spec.auto);
+
+  type Collection = (typeof allCollections)[number];
+  const openCollection = (c: Collection) => {
+    setPage("table");
+    const f = c.spec.filters ?? {};
+    setQueryInput(c.spec.query ?? "");
+    setParams({
+      q: c.spec.query || undefined,
+      mode: c.spec.mode || undefined,
+      col: String(c.id),
+      kind: f.kind, domain: f.domain, category: f.category,
+      is_essay: f.is_essay ? "true" : undefined,
+      date_from: f.date_from, date_to: f.date_to,
+    });
+  };
+  const deleteCollection = (id: number) => {
+    if (!window.confirm("Delete this collection? (Items are untouched.)")) return;
+    fetch(`/api/collections/${id}`, { method: "DELETE" }).then(() => {
+      if (params.col === String(id)) setParams({ col: undefined });
+      collectionsQuery.refetch();
+    });
+  };
 
   const runSync = async () => {
     if (syncing) return;
@@ -212,7 +238,14 @@ export default function App() {
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
           <Facet title="Collections">
             <FacetRow label="Everything" active={activeFilters.length === 0 && page === "table"}
-              onClick={() => { setPage("table"); setParams(Object.fromEntries(activeFilters.map(([k]) => [k, undefined]))); }} />
+              onClick={() => {
+                setPage("table");
+                setQueryInput("");
+                setParams({
+                  ...Object.fromEntries(activeFilters.map(([k]) => [k, undefined])),
+                  col: undefined, q: undefined,
+                });
+              }} />
             <FacetRow label="Essays" active={params.is_essay === "true"}
               onClick={() => { setPage("table"); setFilter("is_essay", "true"); }} />
             <FacetRow label="Reading lists" active={params.in_reading_list === "true"}
@@ -228,20 +261,17 @@ export default function App() {
             <FacetRow label="Contrarian" dotStyle={catStyle("contrarian")}
               active={params.category === "contrarian"}
               onClick={() => { setPage("table"); setFilter("category", "contrarian"); }} />
-            {(collectionsQuery.data?.collections ?? []).map((c) => (
-              <FacetRow key={c.id} label={c.name}
-                active={false}
-                onClick={() => {
-                  setPage("table");
-                  const f = c.spec.filters ?? {};
-                  setQueryInput(c.spec.query ?? "");
-                  setParams({
-                    q: c.spec.query || undefined,
-                    kind: f.kind, domain: f.domain, category: f.category,
-                    is_essay: f.is_essay ? "true" : undefined,
-                    date_from: f.date_from, date_to: f.date_to,
-                  });
-                }} />
+            <FacetRow label="Threads" active={params.is_thread === "true"}
+              onClick={() => { setPage("table"); setFilter("is_thread", "true"); }} />
+            <FacetRow label="Notes" active={params.kind === "note"}
+              onClick={() => { setPage("table"); setFilter("kind", "note"); }} />
+            <FacetRow label="AI chats" active={params.kind === "chat_conversation"}
+              onClick={() => { setPage("table"); setFilter("kind", "chat_conversation"); }} />
+            {savedCollections.map((c) => (
+              <CollectionRow key={c.id} name={c.name}
+                active={params.col === String(c.id)}
+                onOpen={() => openCollection(c)}
+                onDelete={readOnly ? undefined : () => deleteCollection(c.id)} />
             ))}
             {(query || activeFilters.length > 0) && (
               <button
@@ -252,7 +282,7 @@ export default function App() {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                       name,
-                      spec: { query: query || undefined, filters: Object.fromEntries(activeFilters) },
+                      spec: { query: query || undefined, mode, filters: Object.fromEntries(activeFilters) },
                     }),
                   }).then(() => collectionsQuery.refetch());
                 }}
@@ -260,6 +290,39 @@ export default function App() {
                 style={{ color: "var(--ink-faint)" }}>
                 + save this search as a collection
               </button>
+            )}
+          </Facet>
+
+          <Facet title="Topics">
+            {autoCollections.map((c) => (
+              <CollectionRow key={c.id} name={c.name}
+                active={params.col === String(c.id)}
+                onOpen={() => openCollection(c)}
+                onDelete={readOnly ? undefined : () => deleteCollection(c.id)} />
+            ))}
+            {autoCollections.length === 0 && (
+              <div className="px-2 py-1 text-[11.5px]" style={{ color: "var(--ink-faint)" }}>
+                No topic map yet.
+              </div>
+            )}
+            {!readOnly && (
+            <button
+              onClick={async () => {
+                if (topicsBusy) return;
+                setTopicsBusy(true);
+                try {
+                  const res = await fetch("/api/collections/auto", { method: "POST" });
+                  const out = await res.json();
+                  if (!res.ok) { window.alert(out.detail ?? "failed"); return; }
+                  collectionsQuery.refetch();
+                } finally {
+                  setTopicsBusy(false);
+                }
+              }}
+              className="mt-1 w-full rounded px-2 py-1 text-left text-[11.5px]"
+              style={{ color: "var(--ink-faint)" }}>
+              {topicsBusy ? "clustering your archive..." : "↻ generate from your archive"}
+            </button>
             )}
           </Facet>
 
@@ -547,6 +610,26 @@ function FacetRow({ label, count, active, onClick, dotStyle, mono }: {
         <span className="facet-count ml-auto shrink-0">{count.toLocaleString()}</span>
       )}
     </button>
+  );
+}
+
+function CollectionRow({ name, active, onOpen, onDelete }: {
+  name: string; active?: boolean; onOpen: () => void; onDelete?: () => void;
+}) {
+  return (
+    <div className={`facet-row group flex w-full items-center gap-1.5 px-2 py-[3px] text-[12.5px] ${active ? "active" : ""}`}>
+      <button onClick={onOpen} className="min-w-0 flex-1 truncate text-left" title={name}>
+        {name}
+      </button>
+      {onDelete && (
+        <button onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          title="Delete collection"
+          className="hidden shrink-0 px-0.5 group-hover:block"
+          style={{ color: "var(--ink-faint)" }}>
+          ×
+        </button>
+      )}
+    </div>
   );
 }
 

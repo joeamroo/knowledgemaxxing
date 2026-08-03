@@ -27,11 +27,13 @@ _SORTS = {
 def _filters_from_params(
     kind=None, source=None, category=None, domain=None,
     date_from=None, date_to=None, starred=None, is_essay=None, in_reading_list=None,
+    is_thread=None,
 ) -> Filters:
     return Filters(
         kind=kind, source=source, category=category, domain=domain,
         date_from=date_from, date_to=date_to,
         starred=starred, is_essay=is_essay, in_reading_list=in_reading_list,
+        is_thread=is_thread,
     )
 
 
@@ -148,6 +150,7 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         starred: Optional[bool] = None,
         is_essay: Optional[bool] = None,
         in_reading_list: Optional[bool] = None,
+        is_thread: Optional[bool] = None,
         sort: str = "created_at",
         order: str = "desc",
         cursor: int = Query(0, ge=0),
@@ -156,7 +159,7 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         conn = get_conn()
         filters = _filters_from_params(
             kind, source, category, domain, date_from, date_to,
-            starred, is_essay, in_reading_list,
+            starred, is_essay, in_reading_list, is_thread,
         )
         if q:
             from km.search.keyword import parse_query
@@ -644,6 +647,20 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         conn.execute("DELETE FROM smart_collections WHERE id=?", (cid,))
         conn.commit()
         return {"ok": True}
+
+    @router.post("/collections/auto")
+    def auto_collections():
+        """Cluster the archive locally and save the topics as collections.
+        No API cost; replaces previous auto collections only."""
+        from km.search.topics import generate_auto_collections
+
+        embedder = _embedder_or_none()
+        if embedder is None:
+            raise HTTPException(422, "embeddings unavailable: uv sync --extra embed")
+        result = generate_auto_collections(get_conn(), embedder)
+        if "error" in result:
+            raise HTTPException(422, result["error"])
+        return result
 
     @router.post("/collections/ai")
     def ai_collection(body: CollectionAI):
