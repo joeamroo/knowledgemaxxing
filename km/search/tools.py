@@ -52,8 +52,74 @@ def search_archive(
     ]
 
 
-def get_item(conn: sqlite3.Connection, id: int) -> dict:
-    """One item in full: text, fetched article body, category, occurrences."""
+def get_chat_messages(
+    conn: sqlite3.Connection,
+    id: int,
+    role: Optional[str] = None,
+    max_messages: int = 100,
+) -> dict:
+    """Structured messages of one chat_conversation item.
+
+    Transcripts are stored as "role: text" blocks (ChatGPT uses user/,
+    Claude uses human/); this splits them back into messages so
+    "the questions I asked in that conversation" is one tool call with
+    role="user" instead of eyeballing a truncated wall of text.
+    """
+    import re
+
+    row = conn.execute(
+        "SELECT kind, title, text, created_at, raw_json FROM items WHERE id=?", (id,)
+    ).fetchone()
+    if not row:
+        return {"error": f"no item with id {id}"}
+    if row["kind"] != "chat_conversation":
+        return {"error": f"item {id} is a {row['kind']}, not a chat conversation"}
+
+    messages: list[dict] = []
+    for block in (row["text"] or "").split("\n\n"):
+        m = re.match(r"^(user|human|assistant|tool|system|unknown):\s*(.*)$", block, re.S)
+        if m:
+            r = "user" if m.group(1) == "human" else m.group(1)
+            messages.append({"role": r, "text": m.group(2).strip()})
+        elif messages:
+            # continuation paragraph of the previous message
+            messages[-1]["text"] += "\n\n" + block
+    total = len(messages)
+    if role:
+        want = "user" if role == "human" else role
+        messages = [m for m in messages if m["role"] == want]
+    matched = len(messages)
+    messages = [{**m, "text": m["text"][:2000]} for m in messages[:max_messages]]
+
+    provider = None
+    try:
+        import json as _json
+
+        provider = (_json.loads(row["raw_json"]) or {}).get("provider")
+    except (ValueError, TypeError):
+        pass
+    return {
+        "id": id,
+        "title": row["title"],
+        "provider": provider,
+        "date": (row["created_at"] or "")[:10] or None,
+        "total_messages": total,
+        "returned": len(messages),
+        "matched_role": matched if role else None,
+        "messages": messages,
+    }
+
+
+def get_item(
+    conn: sqlite3.Connection,
+    id: int,
+    offset: int = 0,
+    max_chars: int = 12_000,
+) -> dict:
+    """One item in full: text, fetched article body, category, occurrences.
+
+    Long texts paginate: offset/max_chars window both text fields, and the
+    result says how much is left so a follow-up call can continue."""
     row = conn.execute("SELECT * FROM items WHERE id=?", (id,)).fetchone()
     if not row:
         return {"error": f"no item with id {id}"}
@@ -75,12 +141,21 @@ def get_item(conn: sqlite3.Connection, id: int) -> dict:
            LEFT JOIN user_edits u ON u.item_id=i.id WHERE i.id=?""",
         (id,),
     ).fetchone()
-    return {
+
+    def window(value):
+        if not value:
+            return value, 0
+        piece = value[offset:offset + max_chars]
+        return piece, max(0, len(value) - offset - len(piece))
+
+    text, text_rest = window(row["text"])
+    article, article_rest = window(body["text"] if body else None)
+    out = {
         "id": row["id"],
         "kind": row["kind"],
         "title": row["title"],
-        "text": row["text"],
-        "article_body": body["text"] if body else None,
+        "text": text,
+        "article_body": article,
         "url": row["url"],
         "domain": row["domain"],
         "author": row["author"],
@@ -88,6 +163,14 @@ def get_item(conn: sqlite3.Connection, id: int) -> dict:
         "category": cat["cat"] if cat else None,
         "occurrences": occurrences,
     }
+    if text_rest or article_rest or offset:
+        out["pagination"] = {
+            "offset": offset,
+            "text_chars_remaining": text_rest,
+            "article_chars_remaining": article_rest,
+            "next_offset": offset + max_chars if (text_rest or article_rest) else None,
+        }
+    return out
 
 
 def list_items(
@@ -359,8 +442,8 @@ def fetch_page(cfg, conn: sqlite3.Connection, id: int) -> dict:
 # ── unified dispatch: one map for the agent and the MCP server ──
 
 READ_TOOLS = {
-    "search_archive", "deep_search", "map_topics", "get_item", "list_items",
-    "archive_stats", "similar_items", "get_tasks", "get_reading_feed",
+    "search_archive", "deep_search", "map_topics", "get_item", "get_chat_messages",
+    "list_items", "archive_stats", "similar_items", "get_tasks", "get_reading_feed",
 }
 
 
@@ -378,6 +461,8 @@ def run_tool(name: str, conn: sqlite3.Connection, cfg, embedder, args: dict):
         return map_topics(conn, embedder, **args)
     if name == "get_item":
         return get_item(conn, **args)
+    if name == "get_chat_messages":
+        return get_chat_messages(conn, **args)
     if name == "list_items":
         return list_items(conn, **args)
     if name == "archive_stats":

@@ -115,10 +115,12 @@ def test_agent_survives_bad_tool_args_and_unknown_tools():
 
 
 def test_agent_round_cap():
+    from km.classify.agent import MAX_TOOL_ROUNDS
+
     conn, _ = _db()
-    responses = [[_tool_block("archive_stats", {}, f"tu_{i}")] for i in range(8)]
+    responses = [[_tool_block("archive_stats", {}, f"tu_{i}")] for i in range(MAX_TOOL_ROUNDS)]
     client = ScriptedClient(responses)
     reply, trace = run_agent(client, "m", conn, None,
                              [{"role": "user", "content": "loop forever"}])
-    assert len(trace) == 8
+    assert len(trace) == MAX_TOOL_ROUNDS
     assert "ran out of search rounds" in reply

@@ -20,7 +20,7 @@ from km.classify.spend import tracked_create
 from km.search.tool_schemas import TOOL_SCHEMAS
 from km.search.tools import run_tool
 
-MAX_TOOL_ROUNDS = 8
+MAX_TOOL_ROUNDS = 12
 HISTORY_WINDOW = 24          # prior messages sent per turn
 TOOL_RESULT_MAX_CHARS = 24_000
 
@@ -50,6 +50,14 @@ fetch_page pulls it from the web right now.
 - Act when asked: star_item, add_note, set_category on items; create_task / \
 complete_task / get_tasks for their task list; queue_reading for 'read later'.
 - Broad questions about their history: archive_stats first to orient.
+- Retrospectives over a period ("why did X keep happening last fall", "what \
+did I ask the AIs about Y"): first list_items with kind=chat_conversation and \
+the date range, plus a deep_search for the topic, to build the full roster of \
+relevant conversations. Then get_chat_messages(role="user") on each to pull \
+what they actually asked; batch several of those calls in ONE round. Only \
+get_item when you need an assistant answer or article in full (it paginates; \
+follow next_offset if chars remain). Synthesize with dates and quote their own \
+words back; a plan grounded in what they actually did beats generic advice.
 - Cite specifics: title, url, date, which source saw it. Never invent an item, \
 a url, or a quote. If the archive genuinely does not have it, say so plainly \
 and suggest a different search they could try.

@@ -98,6 +98,34 @@ def latest_session(data_dir: Path, persona: str) -> Optional[Path]:
     return files[-1] if files else None
 
 
+def resolve_session(data_dir: Path, name: str) -> Optional[Path]:
+    """Session file by name, refusing anything that is not a plain existing
+    filename inside the sessions dir (no traversal)."""
+    if not name or Path(name).name != name or not name.endswith(".json"):
+        return None
+    path = _sessions_dir(data_dir) / name
+    return path if path.exists() else None
+
+
+def list_sessions(data_dir: Path, limit: int = 30) -> list[dict]:
+    """Recent sessions across all personas, newest first, with a label from
+    the first user message so a tab picker has something to show."""
+    out = []
+    for path in _sessions_dir(data_dir).glob("*.json"):
+        messages = load_history(path)
+        first_user = next((m["content"] for m in messages if m["role"] == "user"), "")
+        persona = path.name.rsplit("-", 2)[0]
+        out.append({
+            "session": path.name,
+            "persona": persona,
+            "updated": path.stat().st_mtime,
+            "label": first_user[:70] or "(empty)",
+            "messages": len(messages),
+        })
+    out.sort(key=lambda s: -s["updated"])
+    return out[:limit]
+
+
 def load_history(path: Path) -> list[dict]:
     try:
         return json.loads(path.read_text())["messages"]
@@ -107,7 +135,9 @@ def load_history(path: Path) -> list[dict]:
 
 def save_session(data_dir: Path, persona: str, path: Optional[Path], messages: list[dict]) -> Path:
     if path is None:
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+        # seconds in the stamp: two tabs opened in the same minute must not
+        # collide into one session file
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         path = _sessions_dir(data_dir) / f"{persona}-{stamp}.json"
     path.write_text(json.dumps(
         {"persona": persona, "updated": datetime.now(timezone.utc).isoformat(),

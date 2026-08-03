@@ -110,9 +110,14 @@ class CollectionAI(BaseModel):
 
 
 class TalkIn(BaseModel):
-    persona: str = "therapist"
+    persona: str = "archivist"
     message: str
     new_session: bool = False
+    # session file name to continue; None + new_session=False resumes the
+    # persona's latest session (single-tab behavior), "" or new_session=True
+    # starts a fresh one. Tabs pass this explicitly so several conversations
+    # can run in parallel.
+    session: Optional[str] = None
 
 
 class CategoryIn(BaseModel):
@@ -700,12 +705,23 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
         return {"personas": ["archivist", *TALK_PERSONAS.keys()]}
 
     @router.get("/talk/history")
-    def talk_history(persona: str = "therapist"):
-        from km.classify.talk import latest_session, load_history
+    def talk_history(persona: str = "therapist", session: Optional[str] = None):
+        from km.classify.talk import latest_session, load_history, resolve_session
 
-        path = latest_session(cfg.data_dir, persona)
+        if session:
+            path = resolve_session(cfg.data_dir, session)
+            if path is None:
+                raise HTTPException(404, "no such session")
+        else:
+            path = latest_session(cfg.data_dir, persona)
         return {"messages": load_history(path) if path else [],
                 "session": path.name if path else None}
+
+    @router.get("/talk/sessions")
+    def talk_sessions():
+        from km.classify.talk import list_sessions
+
+        return {"sessions": list_sessions(cfg.data_dir)}
 
     @router.post("/talk/message")
     def talk_message(body: TalkIn):
@@ -722,8 +738,18 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
 
         conn = get_conn()
         client = get_client()
-        path = None if body.new_session else latest_session(cfg.data_dir, body.persona)
-        if body.new_session:
+        from km.classify.talk import resolve_session
+
+        if body.session == "":
+            # a new tab: fresh session, without closing any other tab's session
+            path = None
+        elif body.session:
+            # tab-addressed: continue exactly this session
+            path = resolve_session(cfg.data_dir, body.session)
+            if path is None:
+                raise HTTPException(404, "no such session")
+        elif body.new_session:
+            path = None
             prior = latest_session(cfg.data_dir, body.persona)
             if prior:
                 try:  # give the next session memory of this one
@@ -731,6 +757,8 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
                                       body.persona, prior, load_history(prior))
                 except Exception:
                     pass
+        else:
+            path = latest_session(cfg.data_dir, body.persona)
         messages = load_history(path) if path else []
         messages.append({"role": "user", "content": body.message})
         tool_trace: list[str] = []

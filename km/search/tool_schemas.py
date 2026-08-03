@@ -80,7 +80,30 @@ TOOL_SCHEMAS = [
         ),
         "input_schema": {
             "type": "object",
-            "properties": {"id": {"type": "integer", "description": "Item id"}},
+            "properties": {
+                "id": {"type": "integer", "description": "Item id"},
+                "offset": {"type": "integer", "description": "Character offset into long text fields (default 0)"},
+                "max_chars": {"type": "integer", "description": "Window size per text field (default 12000); the result reports chars remaining"},
+            },
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "get_chat_messages",
+        "description": (
+            "Structured messages of one AI chat conversation (ChatGPT/Claude "
+            "logs, kind=chat_conversation). role='user' returns exactly what "
+            "the person asked in that conversation, which is the tool for "
+            "'what did I ask about X' retrospectives. Far cheaper than "
+            "get_item on long transcripts."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer", "description": "chat_conversation item id (from list_items or search)"},
+                "role": {"type": "string", "description": "user | assistant; omit for the full transcript"},
+                "max_messages": {"type": "integer", "description": "Cap (default 100)"},
+            },
             "required": ["id"],
         },
     },
