@@ -400,27 +400,14 @@ def archive_stats(conn: sqlite3.Connection) -> dict:
 
 
 def similar_items(conn: sqlite3.Connection, id: int, k: int = 8) -> list[dict]:
-    """Embedding nearest-neighbors of one item: 'more like this'."""
-    from km.embedding.store import similar_items as _similar
+    """Related items via three fused signals (same meaning, shared language,
+    read together), each result tagged with why it is related."""
+    from km.search.related import related_items
 
-    hits = _similar(conn, id, limit=k)
+    hits = related_items(conn, id, k=k)
     if not hits:
-        return [{"note": "no embedding for this item yet (or sqlite-vec missing)"}]
-    out = []
-    for item_id, distance in hits:
-        row = conn.execute(
-            "SELECT id, kind, title, text, url, domain, created_at FROM items WHERE id=?",
-            (item_id,),
-        ).fetchone()
-        if row:
-            out.append({
-                "id": row["id"], "kind": row["kind"],
-                "title": row["title"] or (row["text"] or "")[:100] or None,
-                "url": row["url"], "domain": row["domain"],
-                "first_seen": (row["created_at"] or "")[:10] or None,
-                "distance": round(distance, 3),
-            })
-    return out
+        return [{"note": "nothing related found (item may be empty or unknown)"}]
+    return hits
 
 
 def _edit_item(conn: sqlite3.Connection, item_id: int, **changes) -> dict:

@@ -197,8 +197,10 @@ TOOL_SCHEMAS = [
     {
         "name": "similar_items",
         "description": (
-            "Embedding nearest-neighbors of one item: 'more things like this'. "
-            "Use after finding a good hit to widen the net."
+            "Related items for one anchor via three fused signals: same "
+            "meaning (embeddings), shared language (distinctive terms), and "
+            "read together (same browsing session). Each result carries "
+            "'reasons'. Use after a good hit to widen the net."
         ),
         "input_schema": {
             "type": "object",

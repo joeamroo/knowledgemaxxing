@@ -25,6 +25,11 @@ export function FeedPage({ onOpenItem, readOnly }: { onOpenItem: (id: number) =>
     fetch(`/api/feed/read/${id}`, { method: "POST" }).then(() =>
       qc.invalidateQueries({ queryKey: ["feed"] }));
 
+  const [fed, setFed] = useState<Record<number, number>>({});
+  const sendFeedback = (id: number, direction: number) =>
+    fetch(`/api/feed/feedback/${id}?direction=${direction}`, { method: "POST" })
+      .then((r) => { if (r.ok) setFed((f) => ({ ...f, [id]: direction })); });
+
   const refresh = async () => {
     setRefreshing(true);
     try {
@@ -95,6 +100,22 @@ export function FeedPage({ onOpenItem, readOnly }: { onOpenItem: (id: number) =>
                       style={{ background: REASON_STYLE[it.reason] ?? "var(--accent)" }} />
                     <span>{it.reason}</span>
                     {it.domain && <span>· {it.domain}</span>}
+                    {!readOnly && it.domain && (
+                      <span className="ml-1 flex gap-1">
+                        <button title={`More from ${it.domain}`}
+                          onClick={() => sendFeedback(it.item_id, 1)}
+                          className="rounded px-1 hover:underline"
+                          style={{ color: fed[it.item_id] === 1 ? "var(--accent)" : "var(--ink-faint)" }}>
+                          more
+                        </button>
+                        <button title={`Less from ${it.domain}`}
+                          onClick={() => sendFeedback(it.item_id, -1)}
+                          className="rounded px-1 hover:underline"
+                          style={{ color: fed[it.item_id] === -1 ? "#c96b5a" : "var(--ink-faint)" }}>
+                          less
+                        </button>
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

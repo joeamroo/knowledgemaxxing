@@ -75,6 +75,32 @@ def quick_note(conn: sqlite3.Connection, text: str) -> int:
     return item_id
 
 
+def quick_bookmark(conn: sqlite3.Connection, url: str, title: str = "") -> int:
+    """Bookmark a URL straight into the archive. Canonicalized, so
+    bookmarking a page you already visited merges into the existing item
+    and simply adds a bookmark occurrence to its provenance."""
+    from datetime import datetime, timezone
+
+    from km.urls import canonicalize
+
+    url = url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("bookmark needs an http(s) url")
+    canon = canonicalize(url)
+    sid, _ = add_source(conn, "manual_bookmark", "quick-capture", None)
+    item_id = upsert_item(conn, NormalizedItem(
+        kind="bookmark",
+        dedupe_key=f"url:{canon}",
+        title=title.strip() or None,
+        url=url,
+        created_at=datetime.now(timezone.utc),
+        raw={"source": "quick-capture"},
+        occurrence_kind="bookmark",
+    ), sid)
+    conn.commit()
+    return item_id
+
+
 def upsert_item(conn: sqlite3.Connection, item: NormalizedItem, source_id: int) -> int:
     """Insert or merge a normalized item; always records the occurrence."""
     canonical = canonicalize(item.url) if item.url else None

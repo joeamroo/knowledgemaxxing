@@ -24,36 +24,38 @@ def _item(conn, sid, key, kind="visit", domain=None, created=None, **kw):
     return item_id
 
 
-# ── feed ecology ──────────────────────────────────────────
+# ── feed ecology (explicit feedback only) ────────────────
 
-def test_ecology_feeds_on_read_and_starves_unread():
-    from km.feed import feed_ecology_starve, mark_read
+def test_ecology_moves_only_on_explicit_feedback():
+    from km.feed import feedback_source, mark_read
 
     conn, sid = _db()
-    read_item = _item(conn, sid, "a", kind="feed_post", domain="loved.blog")
-    skipped = _item(conn, sid, "b", kind="feed_post", domain="ignored.blog")
-    conn.execute("INSERT INTO daily_feed(date, item_id, reason, position) VALUES ('2026-08-01', ?, 'new today', 0)", (read_item,))
-    conn.execute("INSERT INTO daily_feed(date, item_id, reason, position) VALUES ('2026-08-01', ?, 'new today', 1)", (skipped,))
+    item = _item(conn, sid, "a", kind="feed_post", domain="some.blog")
+    conn.execute("INSERT INTO daily_feed(date, item_id, reason, position) VALUES ('2026-08-01', ?, 'new today', 0)", (item,))
     conn.commit()
 
-    mark_read(conn, read_item, date="2026-08-01")
-    feed_ecology_starve(conn, "2026-08-02")
+    # implicit signals never touch populations
+    mark_read(conn, item, date="2026-08-01")
+    assert conn.execute("SELECT count(*) FROM feed_ecology").fetchone()[0] == 0
 
-    pop = {r["domain"]: r["population"] for r in conn.execute("SELECT * FROM feed_ecology")}
-    assert pop["loved.blog"] > 1.0
-    assert pop["ignored.blog"] < 1.0
+    up = feedback_source(conn, item, +1)
+    assert up["domain"] == "some.blog" and up["population"] > 1.0
+    down = feedback_source(conn, item, -1)
+    assert down["population"] < up["population"]
+    assert feedback_source(conn, 99999, +1) is None
 
 
 def test_ecology_population_bounds():
-    from km.feed import mark_read
+    from km.feed import feedback_source
 
     conn, sid = _db()
     item = _item(conn, sid, "a", kind="feed_post", domain="d.blog")
-    conn.execute("INSERT INTO daily_feed(date, item_id, reason, position) VALUES ('2026-08-01', ?, 'x', 0)", (item,))
     for _ in range(20):
-        mark_read(conn, item, date="2026-08-01")
-    pop = conn.execute("SELECT population FROM feed_ecology WHERE domain='d.blog'").fetchone()[0]
-    assert pop <= 10.0
+        feedback_source(conn, item, +1)
+    assert conn.execute("SELECT population FROM feed_ecology WHERE domain='d.blog'").fetchone()[0] <= 10.0
+    for _ in range(40):
+        feedback_source(conn, item, -1)
+    assert conn.execute("SELECT population FROM feed_ecology WHERE domain='d.blog'").fetchone()[0] >= 0.1
 
 
 def test_igniting_topics_detects_swarm():

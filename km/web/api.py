@@ -113,6 +113,11 @@ class NoteIn(BaseModel):
     text: str
 
 
+class BookmarkIn(BaseModel):
+    url: str
+    title: Optional[str] = None
+
+
 class TalkIn(BaseModel):
     persona: str = "archivist"
     message: str
@@ -225,16 +230,16 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
     def similar(item_id: int, k: int = 6):
         conn = get_conn()
         try:
-            from km.embedding.store import similar_items
-            hits = similar_items(conn, item_id, limit=k)
+            from km.search.related import related_items
+            hits = related_items(conn, item_id, k=k, max_anchor_chunks=1)
         except Exception:
             hits = []
         out = []
-        for other_id, distance in hits:
-            row = conn.execute("SELECT * FROM items WHERE id=?", (other_id,)).fetchone()
+        for hit in hits:
+            row = conn.execute("SELECT * FROM items WHERE id=?", (hit["id"],)).fetchone()
             if row:
                 d = _item_dict(conn, row)
-                d["distance"] = round(distance, 4)
+                d["reasons"] = hit["reasons"]
                 out.append(d)
         return {"items": out}
 
@@ -432,6 +437,12 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
             stats._rhythm_cache = cached
         s["by_hour"] = cached[1]
         s["streaks"] = cached[2]
+        try:
+            from km.feed import igniting_topics
+
+            s["igniting"] = igniting_topics(conn)
+        except Exception:
+            s["igniting"] = []
         return s
 
     @router.get("/digest")
@@ -803,6 +814,51 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
             raise HTTPException(422, "empty note")
         item_id = quick_note(get_conn(), body.text)
         return {"id": item_id}
+
+    @router.post("/bookmark")
+    def create_bookmark(body: BookmarkIn):
+        from km.store import quick_bookmark
+
+        try:
+            item_id = quick_bookmark(get_conn(), body.url, title=body.title or "")
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        fetched = False
+        try:
+            from km.search.tools import fetch_page
+
+            fetched = bool(fetch_page(cfg, get_conn(), item_id).get("ok"))
+        except Exception:
+            pass
+        return {"id": item_id, "fetched_text": fetched}
+
+    @router.post("/feed/feedback/{item_id}")
+    def feed_feedback(item_id: int, direction: int = 1):
+        from km.feed import feedback_source
+
+        result = feedback_source(get_conn(), item_id, direction)
+        if result is None:
+            raise HTTPException(404, "item has no source domain to adjust")
+        return result
+
+    @router.get("/coverage")
+    def coverage_report():
+        from km.audit import coverage
+
+        from km.fetch_content import dead_saves
+
+        report = coverage(get_conn())
+        report["dead_saves"] = dead_saves(get_conn(), limit=8)
+        return report
+
+    @router.get("/episodes")
+    def episodes(days: int = 30):
+        from datetime import timedelta
+
+        from km.search.tools import find_episodes
+
+        date_from = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        return {"episodes": find_episodes(get_conn(), date_from=date_from)}
 
     @router.get("/egress")
     def egress():

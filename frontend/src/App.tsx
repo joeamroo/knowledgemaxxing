@@ -395,6 +395,20 @@ export default function App() {
                 }).then((r) => { if (r.ok) itemsQuery.refetch(); });
               }} label="Note" />
           )}
+          {!readOnly && (
+            <SideButton title="Bookmark a URL into the archive (merges with an existing visit)"
+              onClick={() => {
+                const url = window.prompt("URL to bookmark:");
+                if (!url?.trim()) return;
+                fetch("/api/bookmark", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ url }),
+                }).then(async (r) => {
+                  if (r.ok) itemsQuery.refetch();
+                  else window.alert((await r.json()).detail ?? "failed");
+                });
+              }} label="Mark" />
+          )}
           <SideButton title="Today's memory mix" onClick={() => setTodayOpen(true)} label="Today" />
           <SideButton title="Stats" active={page === "stats"}
             onClick={() => setPage(page === "stats" ? "table" : "stats")} label="Stats" />

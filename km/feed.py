@@ -241,22 +241,26 @@ def refresh_feeds(conn: sqlite3.Connection, max_new_probes: int = 15) -> dict:
     return stats
 
 
-def feed_ecology_starve(conn: sqlite3.Connection, before_date: str) -> None:
-    """Gut-flora rule, starvation half: domains whose feed items sat unread
-    lose population. Reading feeds them back (see mark_read)."""
+def feedback_source(conn: sqlite3.Connection, item_id: int, direction: int) -> Optional[dict]:
+    """Explicit feed feedback: 'more of this source' (+1) or 'less' (-1).
+    The ONLY thing that moves a source's population; km never adjusts it
+    on its own. Bounded [0.1, 10]. Returns the new state or None."""
+    row = conn.execute("SELECT domain FROM items WHERE id=?", (item_id,)).fetchone()
+    if not row or not row["domain"]:
+        return None
+    step = 1.0 if direction > 0 else -1.0
     now = datetime.now(timezone.utc).isoformat()
-    for row in conn.execute(
-        """SELECT DISTINCT i.domain FROM daily_feed f
-           JOIN items i ON i.id = f.item_id
-           WHERE f.date < ? AND f.read = 0 AND i.domain IS NOT NULL""",
-        (before_date,),
-    ).fetchall():
-        conn.execute(
-            """INSERT INTO feed_ecology(domain, population, updated) VALUES (?, 0.75, ?)
-               ON CONFLICT(domain) DO UPDATE
-               SET population = max(0.1, population - 0.25), updated = ?""",
-            (row["domain"], now, now))
+    conn.execute(
+        """INSERT INTO feed_ecology(domain, population, updated)
+           VALUES (?, ?, ?)
+           ON CONFLICT(domain) DO UPDATE
+           SET population = min(10.0, max(0.1, population + ?)), updated = ?""",
+        (row["domain"], max(0.1, 1.0 + step), now, step, now))
     conn.commit()
+    pop = conn.execute(
+        "SELECT population FROM feed_ecology WHERE domain=?", (row["domain"],)
+    ).fetchone()["population"]
+    return {"domain": row["domain"], "population": round(pop, 2)}
 
 
 def igniting_topics(
@@ -331,7 +335,6 @@ def build_daily_feed(conn: sqlite3.Connection, date: Optional[str] = None, size:
         return conn.execute(
             "SELECT count(*) FROM daily_feed WHERE date=?", (date,)).fetchone()[0]
 
-    feed_ecology_starve(conn, date)
     picks: list[tuple[int, str]] = []
     seen: set[int] = set()
 
@@ -416,15 +419,6 @@ def get_daily_feed(conn: sqlite3.Connection, date: Optional[str] = None) -> list
 def mark_read(conn: sqlite3.Connection, item_id: int, date: Optional[str] = None) -> None:
     date = date or datetime.now(timezone.utc).date().isoformat()
     conn.execute("UPDATE daily_feed SET read=1 WHERE date=? AND item_id=?", (date, item_id))
-    # gut-flora rule, feeding half: reading a source grows its population
-    row = conn.execute("SELECT domain FROM items WHERE id=?", (item_id,)).fetchone()
-    if row and row["domain"]:
-        now = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            """INSERT INTO feed_ecology(domain, population, updated) VALUES (?, 2.0, ?)
-               ON CONFLICT(domain) DO UPDATE
-               SET population = min(10.0, population + 1.0), updated = ?""",
-            (row["domain"], now, now))
     conn.commit()
 
 

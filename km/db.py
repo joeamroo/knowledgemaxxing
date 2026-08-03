@@ -178,6 +178,11 @@ CREATE TABLE IF NOT EXISTS content(
   ok INTEGER DEFAULT 1      -- 0: fetch failed or nothing readable there
 );
 
+-- expression index: julianday() is format-agnostic across the mixed ISO
+-- timestamp styles different sources write, and it makes time-window joins
+-- (the "read together" relatedness leg) sargable
+CREATE INDEX IF NOT EXISTS idx_occurrences_jd ON occurrences(julianday(occurred_at));
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
   title, text, content=items, content_rowid=id
 );

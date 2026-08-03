@@ -628,6 +628,32 @@ def note(
 
 
 @app.command()
+def bookmark(
+    url: str = typer.Argument(..., help="The url to save"),
+    title: str = typer.Option("", "--title", help="Optional title (else fetched)"),
+    fetch: bool = typer.Option(True, "--fetch/--no-fetch", help="Fetch the article text now"),
+) -> None:
+    """Bookmark a URL into the archive. If you already visited it, the
+    bookmark merges into that item's provenance instead of duplicating."""
+    from km.db import get_db
+    from km.store import quick_bookmark
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    item_id = quick_bookmark(conn, url, title=title)
+    console.print(f"[green]bookmarked[/green] (item {item_id})")
+    if fetch:
+        try:
+            from km.search.tools import fetch_page
+
+            result = fetch_page(cfg, conn, item_id)
+            if result.get("ok"):
+                console.print(f"  fetched {result['word_count']} words of article text")
+        except Exception:
+            console.print("  [dim]text fetch skipped; km sync will get it[/dim]")
+
+
+@app.command()
 def resurface() -> None:
     """One item from your own past, for a terminal MOTD or an idle moment.
     Add 'km resurface' to your shell rc for an ambient daily echo."""

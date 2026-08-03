@@ -134,8 +134,114 @@ export function StatsPage() {
             ([d, c]: [string, number]) => [d, c] as [string, number]
           )} mono />
         </section>
+
+        {(data.igniting ?? []).length > 0 && (
+          <section className="reveal" style={{ animationDelay: "290ms" }}>
+            <div className="smallcaps mb-2">swarming right now</div>
+            <div className="space-y-1">
+              {data.igniting.map((t: { domain: string; recent: number; per_day: number }) => (
+                <div key={t.domain} className="flex items-baseline gap-2 text-[12.5px]">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full animate-pulse"
+                    style={{ background: "var(--accent)" }} />
+                  <span className="font-mono-data truncate">{t.domain}</span>
+                  <span className="font-mono-data ml-auto" style={{ color: "var(--ink-faint)" }}>
+                    {t.recent} hits · {t.per_day}/day
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <RabbitHoles />
+        <div className="lg:col-span-2 grid grid-cols-1 gap-8 lg:grid-cols-2">
+          <CoverageCard />
+          <EgressCard />
+        </div>
       </div>
     </div>
+  );
+}
+
+function RabbitHoles() {
+  const { data } = useQuery({
+    queryKey: ["episodes"],
+    queryFn: () => fetch("/api/episodes?days=30").then((r) => r.json()) as Promise<{
+      episodes: { start: string; visits: number; top_domains: Record<string, number>; sample_titles: string[] }[];
+    }>,
+    staleTime: 300_000,
+  });
+  const eps = data?.episodes ?? [];
+  if (!eps.length) return null;
+  return (
+    <section className="reveal" style={{ animationDelay: "320ms" }}>
+      <div className="smallcaps mb-2">rabbit holes, last 30 days</div>
+      <div className="space-y-1.5">
+        {eps.slice(0, 5).map((e, i) => (
+          <div key={i} className="text-[12.5px]" title={e.sample_titles.join("\n")}>
+            <span className="font-mono-data" style={{ color: "var(--ink-faint)" }}>
+              {e.start.replace("T", " ")} ·{" "}
+            </span>
+            {e.visits} visits deep into {Object.keys(e.top_domains).slice(0, 2).join(", ")}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CoverageCard() {
+  const { data } = useQuery({
+    queryKey: ["coverage"],
+    queryFn: () => fetch("/api/coverage").then((r) => r.json()),
+    staleTime: 300_000,
+  });
+  if (!data) return null;
+  return (
+    <section className="reveal" style={{ animationDelay: "350ms" }}>
+      <div className="smallcaps mb-2">index coverage</div>
+      <div className="text-[12.5px]" style={{ color: data.healthy ? "var(--ink-dim)" : "#c96b5a" }}>
+        {data.totals.chunks.toLocaleString()} chunks over {data.totals.items.toLocaleString()} items
+        {data.healthy ? " · search sees everything" : " · gaps found, run a sync"}
+      </div>
+      {(data.dead_saves ?? []).length > 0 && (
+        <div className="mt-1.5 text-[12px]" style={{ color: "var(--ink-faint)" }}
+          title={data.dead_saves.map((d: { url: string }) => d.url).join("\n")}>
+          {data.dead_saves.length}+ saved links have gone dead (text preserved where fetched)
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EgressCard() {
+  const { data } = useQuery({
+    queryKey: ["egress"],
+    queryFn: () => fetch("/api/egress").then((r) => r.json()),
+    staleTime: 60_000,
+  });
+  if (!data) return null;
+  const channels = Object.entries(data.by_channel ?? {});
+  return (
+    <section className="reveal" style={{ animationDelay: "380ms" }}>
+      <div className="smallcaps mb-2">what has left this machine</div>
+      {channels.length === 0 ? (
+        <div className="text-[12.5px]" style={{ color: "var(--ink-dim)" }}>
+          Nothing has ever left the archive.
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {channels.map(([channel, s]: [string, { events: number; items: number }]) => (
+            <div key={channel} className="flex items-baseline gap-2 text-[12.5px]">
+              <span className="font-mono-data">{channel}</span>
+              <span className="font-mono-data ml-auto" style={{ color: "var(--ink-faint)" }}>
+                {s.items.toLocaleString()} items · {s.events.toLocaleString()} events
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

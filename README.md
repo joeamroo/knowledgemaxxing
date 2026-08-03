@@ -84,6 +84,8 @@ uv run km fetch-content       # fetch readable article text for essays and saves
 uv run km embed               # local embeddings for semantic search (passage-level,
                               # with the fetched article bodies included)
 uv run km export              # regenerate exports/*.md
+uv run km note "a thought"    # quick capture onto the archive timeline
+uv run km bookmark <url>      # bookmark a URL (merges with an existing visit)
 uv run km export-vault ~/Vault # write the archive into an Obsidian vault:
                               # one linked note per item, frontmatter + MOCs
 uv run km export-json         # dump everything to JSONL: items, categories,

@@ -48,7 +48,7 @@ export function Drawer({ itemId, onClose, onChanged, onOpen, onChatAbout, readOn
     queryKey: ["similar", itemId],
     queryFn: () =>
       fetch(`/api/items/${itemId}/similar`).then((r) => r.json()) as Promise<{
-        items: { id: number; kind: string; title?: string; text?: string; domain?: string }[];
+        items: { id: number; kind: string; title?: string; text?: string; domain?: string; reasons?: string[] }[];
       }>,
     staleTime: 60_000,
   });
@@ -217,6 +217,11 @@ export function Drawer({ itemId, onClose, onChanged, onOpen, onChatAbout, readOn
                       {KIND_LABELS[s.kind] ?? s.kind} ·{" "}
                     </span>
                     {(s.title || s.text || "").slice(0, 110)}
+                    {s.reasons && s.reasons.length > 0 && (
+                      <span className="font-mono-data ml-1.5 text-[10px]" style={{ color: "var(--accent)" }}>
+                        {s.reasons.join(" · ")}
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
