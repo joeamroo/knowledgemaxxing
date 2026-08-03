@@ -32,6 +32,28 @@ _SKIP_DOMAINS = (
 MIN_WORDS = 80  # below this it's a nav page or a stub, not an article
 
 
+def dead_saves(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
+    """Cold-chain report: things you deliberately saved whose links are now
+    dead or unreadable (fetch failed or returned nothing). These are the
+    items to rescue elsewhere before they are gone for good."""
+    rows = conn.execute(
+        """SELECT i.id, i.kind, i.title, i.url, i.domain, i.created_at
+           FROM items i JOIN content c ON c.item_id = i.id
+           LEFT JOIN user_edits u ON u.item_id = i.id
+           WHERE c.ok = 0
+             AND (i.is_essay = 1 OR i.in_reading_list = 1 OR u.starred = 1
+                  OR i.kind IN ('bookmark', 'favorite', 'upvote', 'saved_post'))
+           ORDER BY coalesce(u.starred, 0) DESC, i.interest_score DESC
+           LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    return [
+        {"id": r["id"], "kind": r["kind"], "title": r["title"], "url": r["url"],
+         "domain": r["domain"], "first_seen": (r["created_at"] or "")[:10] or None}
+        for r in rows
+    ]
+
+
 def candidates(
     conn: sqlite3.Connection, limit: Optional[int] = None, everything: bool = False
 ) -> list[sqlite3.Row]:

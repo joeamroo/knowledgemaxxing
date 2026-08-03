@@ -241,6 +241,89 @@ def refresh_feeds(conn: sqlite3.Connection, max_new_probes: int = 15) -> dict:
     return stats
 
 
+def feed_ecology_starve(conn: sqlite3.Connection, before_date: str) -> None:
+    """Gut-flora rule, starvation half: domains whose feed items sat unread
+    lose population. Reading feeds them back (see mark_read)."""
+    now = datetime.now(timezone.utc).isoformat()
+    for row in conn.execute(
+        """SELECT DISTINCT i.domain FROM daily_feed f
+           JOIN items i ON i.id = f.item_id
+           WHERE f.date < ? AND f.read = 0 AND i.domain IS NOT NULL""",
+        (before_date,),
+    ).fetchall():
+        conn.execute(
+            """INSERT INTO feed_ecology(domain, population, updated) VALUES (?, 0.75, ?)
+               ON CONFLICT(domain) DO UPDATE
+               SET population = max(0.1, population - 0.25), updated = ?""",
+            (row["domain"], now, now))
+    conn.commit()
+
+
+def igniting_topics(
+    conn: sqlite3.Connection,
+    days: int = 14,
+    baseline_days: int = 90,
+    min_count: int = 5,
+    ratio: float = 3.0,
+) -> list[dict]:
+    """Quorum sensing over your own attention: domains whose recent activity
+    density crossed a threshold against their own baseline. A topic announces
+    itself the moment it goes from stray to swarm."""
+    rows = conn.execute(
+        """SELECT domain,
+                  sum(created_at >= datetime('now', ?)) AS recent,
+                  sum(created_at < datetime('now', ?)
+                      AND created_at >= datetime('now', ?)) AS baseline
+           FROM items
+           WHERE domain IS NOT NULL
+             AND created_at >= datetime('now', ?)
+           GROUP BY domain""",
+        (f"-{days} days", f"-{days} days",
+         f"-{baseline_days + days} days", f"-{baseline_days + days} days"),
+    ).fetchall()
+    out = []
+    for r in rows:
+        recent = r["recent"] or 0
+        if recent < min_count:
+            continue
+        recent_rate = recent / days
+        base_rate = (r["baseline"] or 0) / baseline_days
+        if recent_rate >= ratio * max(base_rate, 1 / baseline_days):
+            out.append({
+                "domain": r["domain"], "recent": recent,
+                "per_day": round(recent_rate, 2),
+                "baseline_per_day": round(base_rate, 2),
+            })
+    out.sort(key=lambda t: -t["per_day"])
+    return out[:8]
+
+
+def consolidation_pick(conn: sqlite3.Connection) -> Optional[int]:
+    """Sleep-phase replay: one item from years ago that lives in the same
+    embedding neighborhood as something you touched this week. The value is
+    the juxtaposition, not the item."""
+    try:
+        from km.embedding.store import similar_items
+    except ImportError:
+        return None
+    recent = conn.execute(
+        """SELECT i.id FROM items i JOIN embedding_chunks c ON c.item_id = i.id
+           WHERE i.created_at >= datetime('now', '-7 days')
+           GROUP BY i.id ORDER BY RANDOM() LIMIT 5""",
+    ).fetchall()
+    for row in recent:
+        for neighbor_id, _ in similar_items(conn, row["id"], limit=8):
+            old = conn.execute(
+                """SELECT id FROM items WHERE id=?
+                   AND created_at < datetime('now', '-3 years')
+                   AND id NOT IN (SELECT item_id FROM daily_feed)""",
+                (neighbor_id,),
+            ).fetchone()
+            if old:
+                return old["id"]
+    return None
+
+
 def build_daily_feed(conn: sqlite3.Connection, date: Optional[str] = None, size: int = 10) -> int:
     """Freeze today's reading list: new posts up front, buried gems after."""
     date = date or datetime.now(timezone.utc).date().isoformat()
@@ -248,6 +331,7 @@ def build_daily_feed(conn: sqlite3.Connection, date: Optional[str] = None, size:
         return conn.execute(
             "SELECT count(*) FROM daily_feed WHERE date=?", (date,)).fetchone()[0]
 
+    feed_ecology_starve(conn, date)
     picks: list[tuple[int, str]] = []
     seen: set[int] = set()
 
@@ -257,10 +341,26 @@ def build_daily_feed(conn: sqlite3.Connection, date: Optional[str] = None, size:
                 picks.append((row["id"], reason))
                 seen.add(row["id"])
 
-    # fresh from the blogs you follow, newest first, never surfaced before
-    take("""SELECT i.id FROM items i WHERE i.kind='feed_post'
+    # fresh from the blogs you follow: population-weighted (sources you
+    # actually read outcompete ones you skip), then newest first
+    take("""SELECT i.id FROM items i
+            LEFT JOIN feed_ecology e ON e.domain = i.domain
+            WHERE i.kind='feed_post'
             AND i.id NOT IN (SELECT item_id FROM daily_feed)
-            ORDER BY i.created_at DESC LIMIT 30""", (), "new today", 4)
+            ORDER BY coalesce(e.population, 1.0) DESC, i.created_at DESC
+            LIMIT 30""", (), "new today", 4)
+    # sleep-phase consolidation: something old that echoes this week
+    pair = consolidation_pick(conn)
+    if pair is not None and pair not in seen:
+        picks.append((pair, "echoes something from this week"))
+        seen.add(pair)
+    # quorum sensing: a topic of yours just went from stray to swarm
+    for topic in igniting_topics(conn)[:1]:
+        take("""SELECT i.id FROM items i
+                WHERE i.domain = ? AND i.is_essay = 1
+                AND i.id NOT IN (SELECT item_id FROM daily_feed)
+                ORDER BY i.created_at DESC LIMIT 5""",
+             (topic["domain"],), f"swarming: {topic['domain']}", 1)
     # saved and never opened, best first
     take("""SELECT i.id FROM items i JOIN occurrences o ON o.item_id=i.id
             WHERE o.kind IN ('bookmark','saved_post','bookmark_tweet','linked_from')
@@ -316,6 +416,15 @@ def get_daily_feed(conn: sqlite3.Connection, date: Optional[str] = None) -> list
 def mark_read(conn: sqlite3.Connection, item_id: int, date: Optional[str] = None) -> None:
     date = date or datetime.now(timezone.utc).date().isoformat()
     conn.execute("UPDATE daily_feed SET read=1 WHERE date=? AND item_id=?", (date, item_id))
+    # gut-flora rule, feeding half: reading a source grows its population
+    row = conn.execute("SELECT domain FROM items WHERE id=?", (item_id,)).fetchone()
+    if row and row["domain"]:
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """INSERT INTO feed_ecology(domain, population, updated) VALUES (?, 2.0, ?)
+               ON CONFLICT(domain) DO UPDATE
+               SET population = min(10.0, population + 1.0), updated = ?""",
+            (row["domain"], now, now))
     conn.commit()
 
 

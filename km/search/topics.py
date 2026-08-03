@@ -94,11 +94,27 @@ def generate_auto_collections(
     if "error" in result:
         return result
 
+    # thymic negative selection: a cluster that mostly recognizes "self"
+    # (an existing collection, or an earlier cluster this run) is culled
+    # instead of shown; only genuinely new topics survive
+    def tokens(label: str) -> set:
+        return {t for t in re.split(r"[^a-z0-9']+", label.lower()) if len(t) > 2}
+
+    existing_names = [
+        r["name"] for r in conn.execute("SELECT name FROM smart_collections")
+    ]
+    self_sets = [tokens(n) for n in existing_names if tokens(n)]
     kept = []
     for cluster in result["clusters"]:
         if cluster["count"] < min_size or cluster["label"] == "misc":
             continue
+        toks = tokens(cluster["label"])
+        if toks and any(
+            len(toks & s) / len(toks | s) >= 0.5 for s in self_sets if s
+        ):
+            continue
         kept.append(cluster)
+        self_sets.append(toks)
 
     # replace prior autos only
     for row in conn.execute("SELECT id, spec FROM smart_collections").fetchall():

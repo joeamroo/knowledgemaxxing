@@ -136,6 +136,21 @@ CREATE TABLE IF NOT EXISTS companion_notes(
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS feed_ecology(
+  domain TEXT PRIMARY KEY,
+  population REAL DEFAULT 1.0,  -- fed when you read a source, starved when you skip
+  updated TEXT
+);
+
+CREATE TABLE IF NOT EXISTS egress(
+  id INTEGER PRIMARY KEY,
+  at TEXT NOT NULL,
+  channel TEXT NOT NULL,        -- archivist | mcp | export-json | export-vault | export-list
+  detail TEXT,                  -- tool or file involved
+  item_count INTEGER DEFAULT 0,
+  item_ids TEXT                 -- json array, capped
+);
+
 CREATE TABLE IF NOT EXISTS ai_spend(
   id INTEGER PRIMARY KEY,
   at TEXT NOT NULL,

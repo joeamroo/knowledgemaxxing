@@ -109,6 +109,10 @@ class CollectionAI(BaseModel):
     instruction: str
 
 
+class NoteIn(BaseModel):
+    text: str
+
+
 class TalkIn(BaseModel):
     persona: str = "archivist"
     message: str
@@ -790,6 +794,21 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
             "spend": {"month_usd": round(month_spend(conn), 2),
                       "budget_usd": cfg.ai_monthly_budget_usd},
         }
+
+    @router.post("/note")
+    def create_note(body: NoteIn):
+        from km.store import quick_note
+
+        if not body.text.strip():
+            raise HTTPException(422, "empty note")
+        item_id = quick_note(get_conn(), body.text)
+        return {"id": item_id}
+
+    @router.get("/egress")
+    def egress():
+        from km.egress import egress_report
+
+        return egress_report(get_conn())
 
     @router.get("/spend")
     def spend():

@@ -134,6 +134,11 @@ def run_agent(
                 payload = {"error": str(exc)}
             except Exception as exc:  # tool bugs surface in-band, loop survives
                 payload = {"error": f"{type(exc).__name__}: {exc}"}
+            else:
+                # archive content is about to leave in an API call: ledger it
+                from km.egress import record_egress
+
+                record_egress(conn, "archivist", use.name, payload=payload)
             results.append(_tool_result_block(use.id, payload))
         convo.append({"role": "user", "content": results})
 

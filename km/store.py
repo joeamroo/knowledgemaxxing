@@ -50,6 +50,31 @@ _KIND_PRIORITY = {
 }
 
 
+def quick_note(conn: sqlite3.Connection, text: str) -> int:
+    """Write-back capture: a note typed into km becomes a first-class item
+    on the same timeline as everything ingested, searchable and embeddable
+    like the rest. Returns the item id."""
+    import hashlib
+    from datetime import datetime, timezone
+
+    text = text.strip()
+    if not text:
+        raise ValueError("empty note")
+    sid, _ = add_source(conn, "manual_note", "quick-capture", None)
+    now = datetime.now(timezone.utc)
+    digest = hashlib.sha256(f"{now.isoformat()}|{text}".encode()).hexdigest()[:12]
+    item_id = upsert_item(conn, NormalizedItem(
+        kind="note",
+        dedupe_key=f"note:quick:{digest}",
+        title=text.splitlines()[0][:80],
+        text=text,
+        created_at=now,
+        raw={"source": "quick-capture"},
+    ), sid)
+    conn.commit()
+    return item_id
+
+
 def upsert_item(conn: sqlite3.Connection, item: NormalizedItem, source_id: int) -> int:
     """Insert or merge a normalized item; always records the occurrence."""
     canonical = canonicalize(item.url) if item.url else None

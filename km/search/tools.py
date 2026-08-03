@@ -322,6 +322,69 @@ def period_summary(
     }
 
 
+def find_episodes(
+    conn: sqlite3.Connection,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    gap_minutes: int = 45,
+    min_items: int = 8,
+    limit: int = 10,
+) -> list[dict]:
+    """Rabbit-hole detection: stitch browsing visits into episodes.
+
+    Items are a poor unit for 'what was I doing that night'; a session of
+    40 visits in 90 minutes is the real object. Groups visits by time gap,
+    keeps the big ones, and names each by its dominant domains."""
+    where = ["kind='visit'", "created_at IS NOT NULL"]
+    params: list = []
+    if date_from:
+        where.append("created_at >= ?"); params.append(date_from)
+    if date_to:
+        where.append("created_at <= ?"); params.append(date_to)
+    rows = conn.execute(
+        f"""SELECT id, title, domain, created_at FROM items
+            WHERE {" AND ".join(where)}
+            ORDER BY created_at LIMIT 20000""",
+        params,
+    ).fetchall()
+
+    from datetime import datetime as _dt
+
+    episodes: list[list] = []
+    current: list = []
+    last_ts = None
+    for r in rows:
+        try:
+            ts = _dt.fromisoformat(r["created_at"].replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            continue
+        if last_ts is not None and (ts - last_ts).total_seconds() > gap_minutes * 60:
+            if len(current) >= min_items:
+                episodes.append(current)
+            current = []
+        current.append(r)
+        last_ts = ts
+    if len(current) >= min_items:
+        episodes.append(current)
+
+    episodes.sort(key=len, reverse=True)
+    out = []
+    for ep in episodes[:limit]:
+        from collections import Counter
+
+        domains = Counter(r["domain"] for r in ep if r["domain"])
+        titles = [r["title"] for r in ep if r["title"]][:6]
+        out.append({
+            "start": ep[0]["created_at"][:16],
+            "end": ep[-1]["created_at"][:16],
+            "visits": len(ep),
+            "top_domains": dict(domains.most_common(4)),
+            "sample_titles": titles,
+            "item_ids": [r["id"] for r in ep[:50]],
+        })
+    return out
+
+
 def archive_stats(conn: sqlite3.Connection) -> dict:
     """Scale and shape of the archive: totals, sources, kinds, top domains."""
     from km.store import stats as get_stats
@@ -502,6 +565,10 @@ def export_list(cfg, conn: sqlite3.Connection, title: str, item_ids: list[int]) 
         else:
             lines.append(f"- {name} ({date})")
     path.write_text("\n".join(lines) + "\n")
+    from km.egress import record_egress
+
+    record_egress(conn, "export-list", str(path),
+                  item_ids=[int(i) for i in item_ids[:500]], count=len(rows))
     return {"ok": True, "path": str(path), "items": len(rows)}
 
 
@@ -546,8 +613,8 @@ def fetch_page(cfg, conn: sqlite3.Connection, id: int) -> dict:
 
 READ_TOOLS = {
     "search_archive", "deep_search", "map_topics", "get_item", "get_items",
-    "get_chat_messages", "list_items", "period_summary", "archive_stats",
-    "similar_items", "get_tasks", "get_reading_feed",
+    "get_chat_messages", "list_items", "period_summary", "find_episodes",
+    "archive_stats", "similar_items", "get_tasks", "get_reading_feed",
 }
 
 
@@ -571,6 +638,8 @@ def run_tool(name: str, conn: sqlite3.Connection, cfg, embedder, args: dict):
         return get_chat_messages(conn, **args)
     if name == "period_summary":
         return period_summary(conn, **args)
+    if name == "find_episodes":
+        return find_episodes(conn, **args)
     if name == "list_items":
         return list_items(conn, **args)
     if name == "archive_stats":

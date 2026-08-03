@@ -58,11 +58,14 @@ class KmServer:
     # ── tools (shared implementations in km.search.tools) ──
 
     def call_tool(self, name: str, args: dict):
+        from km.egress import record_egress
         from km.search.tools import run_tool
 
         if name not in READ_TOOLS:
             raise KeyError(name)  # write tools are chat-only, never MCP
-        return run_tool(name, self.conn, self.cfg, self.embedder(), args)
+        payload = run_tool(name, self.conn, self.cfg, self.embedder(), args)
+        record_egress(self.conn, "mcp", name, payload=payload)
+        return payload
 
     # ── protocol plumbing ──────────────────────────────────
 

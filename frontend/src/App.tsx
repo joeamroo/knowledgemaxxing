@@ -384,6 +384,17 @@ export default function App() {
             <SideButton title="Add archives (drag and drop exports)"
               onClick={() => setShowOnboarding(true)} label="Add" />
           )}
+          {!readOnly && (
+            <SideButton title="Quick note: capture a thought onto the archive timeline"
+              onClick={() => {
+                const text = window.prompt("Note to your archive:");
+                if (!text?.trim()) return;
+                fetch("/api/note", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ text }),
+                }).then((r) => { if (r.ok) itemsQuery.refetch(); });
+              }} label="Note" />
+          )}
           <SideButton title="Today's memory mix" onClick={() => setTodayOpen(true)} label="Today" />
           <SideButton title="Stats" active={page === "stats"}
             onClick={() => setPage(page === "stats" ? "table" : "stats")} label="Stats" />

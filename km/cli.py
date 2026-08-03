@@ -534,6 +534,9 @@ def export_vault_cmd(
         conn, vault_dir, folder=folder,
         include_saved=not essays_only, limit=limit,
     )
+    from km.egress import record_egress
+
+    record_egress(conn, "export-vault", str(vault_dir), count=summary["notes"])
     console.print(
         f"[green]wrote[/green] {summary['notes']} notes "
         f"({summary['categories']} categories, {summary['domains']} domains) "
@@ -566,6 +569,9 @@ def export_json_cmd(
         out_path = cfg.exports_dir / f"km-archive.{fmt}"
     conn = get_db(cfg.db_path)
     summary = export_json(conn, out_path, fmt=fmt, include_raw=include_raw, limit=limit)
+    from km.egress import record_egress
+
+    record_egress(conn, "export-json", str(out_path), count=summary["items"])
     size_mb = out_path.stat().st_size / 1_048_576
     console.print(
         f"[green]wrote[/green] {summary['items']} items to {out_path} ({size_mb:.1f} MB)"
@@ -604,6 +610,91 @@ def fetch_content_cmd(
     )
     if counters["fetched"]:
         console.print("Now run [bold]km embed[/bold] to make the new text searchable.")
+
+
+@app.command()
+def note(
+    text: str = typer.Argument(..., help="The note; first line becomes the title"),
+) -> None:
+    """Quick capture: a note lands on the archive timeline as a first-class
+    item, searchable next to everything you ever read."""
+    from km.db import get_db
+    from km.store import quick_note
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    item_id = quick_note(conn, text)
+    console.print(f"[green]noted[/green] (item {item_id}). It joins search on the next km sync embed pass.")
+
+
+@app.command()
+def resurface() -> None:
+    """One item from your own past, for a terminal MOTD or an idle moment.
+    Add 'km resurface' to your shell rc for an ambient daily echo."""
+    from km.db import get_db
+    from km.extract.reports import daily_digest
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    digest = daily_digest(conn)
+    pick = (digest.get("on_this_day") or digest.get("gems") or [None])[0]
+    if not pick:
+        console.print("[dim]the archive has nothing to echo yet[/dim]")
+        return
+    years = pick.get("years_ago")
+    when = f"{years} year{'s' if years != 1 else ''} ago today" if years else "from your archive"
+    label = pick.get("title") or (pick.get("text") or "")[:100]
+    console.print(f"[dim]{when}:[/dim] {label}")
+    if pick.get("url"):
+        console.print(f"  [blue]{pick['url']}[/blue]")
+
+
+@app.command(name="egress")
+def egress_cmd() -> None:
+    """The bill of lading: everything that ever left the archive, by channel."""
+    from km.db import get_db
+    from km.egress import egress_report
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    report = egress_report(conn)
+    if not report["by_channel"]:
+        console.print("[green]Nothing has ever left the archive.[/green]")
+        return
+    console.print("[bold]Egress by channel[/bold]")
+    for channel, stats in report["by_channel"].items():
+        console.print(f"  {channel}: {stats['items']:,} items across {stats['events']:,} events")
+    console.print("\n[bold]Recent[/bold]")
+    for row in report["recent"][:12]:
+        console.print(f"  [dim]{row['at'][:16]}[/dim] {row['channel']} · {row['detail']} · {row['items']} items")
+
+
+@app.command()
+def coverage() -> None:
+    """Is search seeing everything? Index completeness by kind and year,
+    plus saved links that have gone dead (rescue them while you can)."""
+    from km.audit import coverage as run_coverage
+    from km.db import get_db
+    from km.fetch_content import dead_saves
+
+    cfg = _cfg()
+    conn = get_db(cfg.db_path)
+    report = run_coverage(conn)
+    t = report["totals"]
+    console.print(
+        f"[bold]{t['items']:,} items[/bold] · {t['chunks']:,} chunks embedded · "
+        f"{t['articles_fetched']:,} article texts fetched")
+    for k in report["by_kind"][:10]:
+        bar = "[green]ok[/green]" if k["embedded_pct"] >= 90 else f"[yellow]{k['embedded_pct']}%[/yellow]"
+        console.print(f"  {k['kind']:<20} {k['total']:>8,} items · embedded {bar}")
+    if report["gaps"]:
+        console.print("[yellow]Gaps: run km embed to close them.[/yellow]")
+    rot = dead_saves(conn, limit=10)
+    if rot:
+        console.print(f"\n[bold]Link rot[/bold]: {len(rot)}+ saved links are dead or unreadable:")
+        for r in rot[:6]:
+            console.print(f"  [red]x[/red] {r['title'] or r['url']}")
+        console.print("[dim]their text is preserved if km fetch-content got there in time[/dim]")
 
 
 @app.command()

@@ -123,6 +123,25 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "find_episodes",
+        "description": (
+            "Stitch browsing visits into rabbit-hole episodes: sessions of "
+            "many visits with no long gaps, named by dominant domains, with "
+            "sample titles and item ids. The unit for 'what was I doing that "
+            "night' and 'my deep-dive sessions about X last month'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date_from": {"type": "string", "description": "ISO date lower bound"},
+                "date_to": {"type": "string", "description": "ISO date upper bound"},
+                "gap_minutes": {"type": "integer", "description": "Gap that ends a session (default 45)"},
+                "min_items": {"type": "integer", "description": "Minimum visits to count (default 8)"},
+                "limit": {"type": "integer", "description": "Max episodes (default 10)"},
+            },
+        },
+    },
+    {
         "name": "get_chat_messages",
         "description": (
             "Structured messages of one AI chat conversation (ChatGPT/Claude "
