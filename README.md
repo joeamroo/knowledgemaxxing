@@ -19,11 +19,12 @@
   </tr>
   <tr>
     <td><img src=".github/assets/km-stats.png" alt="Stats: accumulation, heatmap, hour-of-day rhythms"></td>
-    <td><img src=".github/assets/km-shot-companion.png" alt="The companion: six AI personas that have read your archive"></td>
+    <td><img src=".github/assets/km-shot-companion.png" alt="The AI chat page, which reads your archive with live search tools"></td>
   </tr>
 </table>
 
-<sub>All screenshots show the bundled synthetic demo data.</sub>
+<sub>All screenshots show the bundled synthetic demo data. The chat shot
+predates the current archivist agent and multi-tab chat.</sub>
 
 Local-first tool that mines your digital exhaust (browser history,
 Twitter/X, Reddit, Substack, Hacker News, AI chat exports) into one
@@ -31,9 +32,10 @@ searchable, categorized knowledge base: a SQLite database, clean
 Markdown exports, a local web UI, and semantic search.
 
 Everything runs locally. The only network calls: the Claude API for
-classification and re-ranking (optional), the authenticated scrapers,
-optional short-link resolution, and the optional Google Drive API mode.
-Each is individually disableable.
+classification, chat and re-ranking (optional, your own key), the
+authenticated scrapers, article-text fetching and RSS polling for the
+reading feed, optional short-link resolution, and the optional Google
+Drive API mode. Each is individually disableable.
 
 ## Important: keep this folder out of iCloud sync
 
@@ -102,7 +104,17 @@ uv run km reflect             # AI reflection on your last 30 days (paid)
 uv run km wrapped 2025 --ai   # shareable year-in-review page with an AI epilogue
 uv run km random --category anecdote
 uv run km digest-schedule     # daily on-this-day macOS notification
+uv run km feed                # today's reading feed in the terminal
+uv run km resurface           # one on-this-day echo, sized for a shell MOTD
 uv run km stats
+uv run km coverage            # index completeness by kind and year, plus a
+                              # dead-link report for things you saved
+uv run km egress              # bill of lading: every passage that has left
+                              # this machine, to which destination, when
+uv run km themes              # recurring themes across the archive
+uv run km task add "..."      # tasks; km task list / done / harvest
+uv run km category add        # define a custom category for the classifier
+uv run km backup              # snapshot the database
 uv run km doctor              # health check: integrity, FTS sync, freshness
 uv run km timeline            # life-timeline.md + recurring-threads.md
 uv run km reports             # obsessions, best tweets, reading debt, questions, rhythms
@@ -153,6 +165,44 @@ Notes:
 - Google Takeout: pick JSON format for My Activity (Multiple formats >
   Activity records > JSON), and include Gemini Apps for Gemini history.
 
+### What km reads out of an X archive
+
+Not just tweets and likes. `km ingest` walks the whole `data/` folder:
+
+| file                       | becomes                                     |
+| -------------------------- | ------------------------------------------- |
+| `tweet.js`, `like.js`      | own tweets, retweets, likes                 |
+| `deleted-tweets.js`        | tweets you deleted, recovered               |
+| `note-tweet.js`            | long-form notes                             |
+| `community-tweet.js`       | community posts                             |
+| `direct-messages*.js`      | DMs, one-to-one and group                   |
+| `grok-chat-item.js`        | Grok conversations, readable like any chat  |
+| `follower.js`, `following.js` | your social graph as items               |
+| `block.js`, `mute.js`      | blocked and muted accounts                  |
+| `lists-*.js`               | lists you own or subscribe to               |
+
+Media is the one thing km does not ingest. Photos and videos attached to
+tweets and DMs stay in the zip, so keep the zip if you want them.
+
+### Keep every archive you have ever downloaded
+
+Point `km ingest` at all of them, not just the newest. Archives are
+snapshots: an old one holds tweets you have since deleted and accounts
+you have since unfollowed, and the newest one holds everything recent.
+km dedupes across them and records one occurrence per archive, so an
+account that vanished from the latest export still exists in the
+database with the date it was last seen. The `social_graph_changes` tool
+in the chat and MCP layers reads exactly that difference.
+
+### Browser page captures
+
+Extensions that export pages with their readable text (`fttf-*.json`)
+are the single richest thing km can ingest, because they carry the
+article body captured at the moment you read it, including pages that
+have since gone behind a paywall or died. They merge into existing
+history by canonical URL, upgrading a title-only visit into a
+searchable one.
+
 ## Login flow
 
 `km login` opens a headed Chromium with a dedicated profile stored at
@@ -170,15 +220,35 @@ default, one viewport scroll every 3-5 seconds.
 
 ## Semantic search
 
-Embeddings run locally by default (sentence-transformers,
-BAAI/bge-small-en-v1.5 on Apple Silicon MPS). The first `km embed` run
-downloads the model once (about 130 MB) from Hugging Face. Set
-`embedding.model: BAAI/bge-m3` in config.yaml for higher quality.
+Embeddings run locally (sentence-transformers, BAAI/bge-base-en-v1.5 at
+768 dimensions, on Apple Silicon MPS). The first `km embed` run
+downloads the model once, about 420 MB from Hugging Face. Set
+`embedding.model: BAAI/bge-m3` in config.yaml for higher quality;
+changing the model rebuilds the vector table at the new dimension.
 Vectors live in the same `data/knowledge.db` via sqlite-vec.
 
-`km ask "query"` runs hybrid retrieval (FTS5 BM25 + vector cosine,
-merged with reciprocal rank fusion). `--ai` sends the top candidates to
-Claude to re-rank with one line of reasoning per pick.
+What gets embedded is passages, not documents. Article bodies pulled in
+by `km fetch-content` are chunked with overlap and the chunk text is
+stored, so a hit points at the paragraph you half remember rather than
+the page it sits on.
+
+Retrieval fuses three independent legs with reciprocal rank fusion:
+BM25 over titles and item text, BM25 over fetched article bodies, and
+vector similarity over passage chunks. `km ask "query"` runs that;
+`--ai` adds a Claude re-rank with one line of reasoning per pick.
+
+The chat and MCP layers go further, at no API cost:
+
+- `deep_search` fans a description into several phrasings, runs every
+  leg at a pool of 400, then a local cross-encoder (ms-marco MiniLM,
+  about 88 MB, downloaded on first use) rereads each query and passage
+  pair and rescores. This is the tool for finding an essay by meaning
+  in a corpus of hundreds of thousands of items.
+- `map_topics` clusters any slice of the corpus into labeled groups
+  with exemplars, for "what do I even have about X".
+- `similar_items` finds neighbors by three separate signals and says
+  which one fired: same meaning, shared distinctive language, or read
+  in the same browsing session.
 
 ## Google Drive API mode (optional)
 
@@ -192,16 +262,36 @@ works fine without any of this.
 ## Privacy
 
 - Everything stays in `data/` on your machine.
-- Only tweet/post text and titles are sent to the Claude API during
-  classification and re-ranking, never file paths or identity metadata.
-- Paid API runs always print an estimate and ask for confirmation.
-- The web UI binds to 127.0.0.1 only and makes no external calls.
+- Only item text and titles are sent to the Claude API, during
+  classification, chat and re-ranking. Never file paths, never identity
+  metadata.
+- Every passage that leaves the machine is logged. `km egress` and the
+  Stats page print the bill of lading: what left, to where, when.
+- Paid API runs print an estimate and ask for confirmation. Interactive
+  spend is metered against `ai_monthly_budget_usd` in config.yaml
+  (default 15) and refused before the call once you cross it.
+- Semantic search, deep search, topic clustering, related items and
+  every offline report run on local models. None of them cost money or
+  touch the network.
+- The web UI binds to 127.0.0.1 only, with a DNS-rebinding guard, and
+  makes no external calls of its own.
+- `km ui --read-only` enforces the gate in middleware, so every
+  mutation and AI route is blocked, not just hidden in the UI.
+- `km mcp` exposes a read-only subset. Tools that write are chat-only
+  by contract.
 
 ## Development
 
 ```bash
-uv run pytest         # full offline test suite (fixtures for every format)
+uv run pytest                    # full offline suite, fixtures for every format
+                                 # no network, no API key needed
+cd frontend && npm run build     # rebuild the UI into km/web/static/
+KM_DB=data/demo.db uv run km ui  # run against the bundled synthetic demo data
 ```
+
+`KM_DB` overrides the database path anywhere in the CLI and the web app.
+Screenshots and any public asset come from the demo database, never a
+real archive.
 
 ## License
 

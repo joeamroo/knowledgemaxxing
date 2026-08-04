@@ -22,3 +22,5 @@ DATA_SOURCES.md
 /km-*.jpg
 .playwright-mcp/
 docs/
+CLAUDE.md
+LAUNCH_PREP_PROMPT.md

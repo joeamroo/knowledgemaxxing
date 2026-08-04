@@ -8,6 +8,7 @@ Deterministic (seeded RNG) so re-runs produce the same demo.
 """
 from __future__ import annotations
 
+import json
 import random
 import sys
 from datetime import datetime, timedelta, timezone
@@ -55,6 +56,145 @@ ESSAYS = [
     ("Speed Matters", "jsomers.net", "https://jsomers.net/blog/speed-matters"),
     ("In Praise of Idleness", "harpers.org", "https://harpers.org/archive/1932/10/in-praise-of-idleness/"),
     ("The Tyranny of the Marginal User", "nothinghuman.substack.com", "https://nothinghuman.substack.com/p/the-tyranny-of-the-marginal-user"),
+]
+
+# Long-form pieces WITH body text, so the demo can show passage-level search
+# (a hit on the paragraph, not the page). Invented essays on Youssef's own
+# domain: the real-essay bookmarks above stay title-only, because attaching
+# fabricated prose to a real author's title would be misattribution.
+LONGFORM = [
+    (
+        "The Half-Life of a Bookmark",
+        "https://montroselabs.ai/notes/half-life-of-a-bookmark",
+        """Every bookmark is a promise you make to a future version of yourself, and
+that person does not read email from the past.
+
+I measured mine. Of the things I saved in a given month, I opened about one in
+nine, and almost all of those within the first two days. After a week the odds
+collapse. After a month the link is functionally a tombstone: it marks that
+something was once interesting to me, on a Tuesday, for a reason I can no
+longer reconstruct.
+
+The obvious explanation is laziness. I think the real one is that saving is a
+different act from reading, and it satisfies a different itch. Reading costs
+twenty minutes. Saving costs one second and produces most of the same feeling,
+which is the feeling of having dealt with the thing. The bookmark is not a
+plan. It is a way of closing a tab without admitting you are closing it.
+
+What changed my behavior was not a better system. It was seeing the pile. Once
+the unopened saves were counted and dated and sitting in one list, the promise
+stopped being abstract. You cannot owe a vague debt to a folder. You can
+absolutely owe four hundred and six specific articles, the oldest of which has
+been waiting since 2019.""",
+    ),
+    (
+        "Forgetting Is the Feature",
+        "https://montroselabs.ai/notes/forgetting-is-the-feature",
+        """We talk about forgetting as decay, as if memory were a warehouse with a
+leaky roof. That framing has never matched the evidence.
+
+Forgetting is selective and it is fast where speed is cheap. You lose the
+parking space from last Tuesday and keep the shape of an argument you found
+convincing a decade ago. A warehouse does not do that. A warehouse loses things
+in proportion to how long they sat and how wet the corner was. Your memory
+loses things in proportion to how little they have mattered since.
+
+This is why review beats rereading, and why spacing beats cramming. The signal
+that something should be retained is not exposure. It is retrieval under mild
+difficulty. Every time you almost fail to remember something and then succeed,
+you are telling the system that this item keeps coming up in the world, so it
+should stay cheap to reach. Cramming sends no such signal. It sends the
+opposite one: this was available a moment ago, no need to hold it.
+
+The practical consequence is uncomfortable. If you want to keep an idea, you
+have to arrange to need it again. Systems that make everything permanently
+available remove exactly the pressure that made anything stick.""",
+    ),
+    (
+        "What the Exhaust Knows",
+        "https://montroselabs.ai/notes/what-the-exhaust-knows",
+        """Your reading history is a more honest document than your journal, because
+you were not writing it for anyone.
+
+A journal is edited in the act of writing. You choose what was worth recording,
+and the choosing is already an argument about who you are. Browser history has
+no such filter. It records the 2 a.m. detour into naval history, the nine
+searches for the same symptom, the essay you opened four separate times over
+three years and finished on none of them. Nobody curates their own exhaust.
+That is what makes it evidence.
+
+The uncomfortable part is that it is legible. Given a few years of it, you can
+recover the shape of a person's obsessions without them saying a word: when
+they started caring about something, how long the interest ran, whether it
+resolved or just stopped. I can point at the exact month I gave up on a
+project, and I never wrote that down anywhere.
+
+Which is the argument for keeping it on your own disk. This is the most
+revealing dataset you will ever generate, and it is generated whether or not
+you pay attention. The only real decision is who else gets a copy.""",
+    ),
+    (
+        "Against the Second Brain",
+        "https://montroselabs.ai/notes/against-the-second-brain",
+        """The pitch for a second brain is that capturing an idea frees you from
+holding it. In practice, capture is where most ideas go to be safely ignored.
+
+I ran a linked-note system for three years, with tags and daily notes and an
+index that I maintained with real discipline. It contained a great deal. I
+consulted it perhaps a dozen times. The notes were not bad. The problem was
+that a note is only useful if something makes you look at it again, and nothing
+did. The system had a superb front door and no reason to walk back in.
+
+What actually worked was smaller and dumber. Search that reaches the sentence I
+half remember, and a feed that puts old saves back in front of me without being
+asked. Neither of those requires me to have organized anything in advance. Both
+of them work on the material as it arrived, which matters, because the version
+of me that saved the thing had no idea what it would later be needed for.
+
+Organization is a bet that you can predict your future questions. I keep losing
+that bet. Retrieval is the hedge.""",
+    ),
+    (
+        "Commonplace, Uncommon",
+        "https://montroselabs.ai/notes/commonplace-uncommon",
+        """For roughly four centuries the standard tool of a literate person was a
+commonplace book: a bound notebook where you copied out passages worth keeping,
+usually with no organizing principle beyond the order you met them.
+
+Copying by hand was slow, and the slowness was doing work. You do not
+transcribe a paragraph you merely agreed with. The friction forced a judgment
+at the moment of reading, and the judgment is the part that lasts. Modern
+capture has removed the friction completely, which is why a highlight archive
+tends to read like a list of sentences that sounded good once.
+
+I am not arguing for going back to the notebook. I am arguing that the judgment
+has to happen somewhere, and if it does not happen at capture then it has to
+happen at retrieval. Either you decide what matters when you meet it, or you
+build something that can find the good paragraph inside ten thousand mediocre
+ones later. What does not work is skipping both and calling the pile a
+library.""",
+    ),
+    (
+        "The Cost of a Search Box",
+        "https://montroselabs.ai/notes/the-cost-of-a-search-box",
+        """A search box promises that you do not need to remember where you put
+things. It is mostly telling the truth, and the exception is expensive.
+
+Keyword search finds documents you can name. It fails on the ordinary case,
+which is remembering a passage and none of its words: the piece about a
+government losing a war against birds, the essay that compared attention to a
+commons. You know the shape of the idea and not one term that appears in the
+text. Every year of accumulated reading makes that failure more likely, because
+the corpus grows and your recall of exact phrasing does not.
+
+Meaning-based retrieval fixes the specific failure and introduces a subtler
+one. It will always return something, ranked and plausible, whether or not the
+thing you want exists. Confidence is uniform across cases where it should not
+be. The fix is not to pick a side. Run both, fuse the rankings, and let a
+second pass reread the candidates against what you actually asked. That is
+slower and it costs nothing but patience, and it is the difference between a
+search box and an archive that answers.""",
+    ),
 ]
 
 NOTES = [
@@ -190,6 +330,22 @@ def main() -> None:
             "UPDATE items SET is_essay=1, domain=?, interest_score=? WHERE id=?",
             (domain, round(rng.uniform(0.5, 0.95), 2), item_id))
 
+    # long-form with body text, so passage search has passages to find
+    longform_ids: list[int] = []
+    for title, url, body in LONGFORM:
+        body = body.strip()
+        item_id = upsert_item(conn, NormalizedItem(
+            kind="bookmark", dedupe_key=f"url:{url}", title=title, url=url,
+            created_at=_stamp(2024)), sid)
+        conn.execute(
+            "UPDATE items SET is_essay=1, domain=?, interest_score=? WHERE id=?",
+            ("montroselabs.ai", round(rng.uniform(0.7, 0.98), 2), item_id))
+        conn.execute(
+            """INSERT OR REPLACE INTO content(item_id, text, word_count, fetched_at, ok)
+               VALUES (?, ?, ?, ?, 1)""",
+            (item_id, body, len(body.split()), "2026-07-28T12:00:00+00:00"))
+        longform_ids.append(item_id)
+
     for title in NOTES:
         upsert_item(conn, NormalizedItem(
             kind="note", dedupe_key=f"apple-note:demo-{title[:12]}", title=title,
@@ -235,9 +391,35 @@ def main() -> None:
             i += 1
         day += timedelta(days=1)
 
+    # saved searches, so the sidebar shows what collections actually look like
+    for name, spec in [
+        ("Memory and recall", {"query": "forgetting spaced repetition memory", "mode": "hybrid"}),
+        ("Essays, unread", {"filters": {"is_essay": True, "in_reading_list": True}}),
+        ("Laws and aphorisms", {"filters": {"category": "natural_law"}}),
+        ("From gwern.net", {"filters": {"domain": "gwern.net"}}),
+    ]:
+        conn.execute(
+            "INSERT INTO smart_collections(name, spec, created_at) VALUES (?,?,?)",
+            (name, json.dumps(spec), "2026-07-28T12:00:00+00:00"))
+
+    # a few stars and one margin note, so those columns are not uniformly empty
+    for item_id in longform_ids[:3]:
+        conn.execute(
+            """INSERT INTO user_edits(item_id, starred, updated_at) VALUES (?,1,?)
+               ON CONFLICT(item_id) DO UPDATE SET starred=1""",
+            (item_id, "2026-07-29T09:00:00+00:00"))
+    if longform_ids:
+        conn.execute(
+            """INSERT INTO user_edits(item_id, note, updated_at) VALUES (?,?,?)
+               ON CONFLICT(item_id) DO UPDATE SET note=excluded.note""",
+            (longform_ids[0], "The four-hundred-and-six number is the one that stuck.",
+             "2026-07-29T09:02:00+00:00"))
+
     conn.commit()
     total = conn.execute("SELECT count(*) FROM items").fetchone()[0]
-    print(f"demo.db seeded with {total:,} items at {db_path}")
+    articles = conn.execute("SELECT count(*) FROM content").fetchone()[0]
+    print(f"demo.db seeded with {total:,} items ({articles} with article text) at {db_path}")
+    print("next: KM_DB=data/demo.db .venv/bin/python -m km.cli embed")
 
 
 if __name__ == "__main__":

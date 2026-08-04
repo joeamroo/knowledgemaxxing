@@ -15,13 +15,22 @@ _SOURCE_SATISFIED_BY: dict[str, set[str]] = {
     "AI chat exports (ChatGPT/Claude)": {"chat_export"},
     "Reddit GDPR export": {"reddit_gdpr"},
     "Bookmarks": {"chrome_bookmarks", "bookmarks_html", "onetab", "pocket", "pocket_csv", "instapaper"},
+    "Browser page captures": {"page_capture"},
 }
 
 _INSTRUCTIONS: dict[str, str] = {
     "Twitter/X archive": (
         "X. Settings > Your account > Download an archive of your data. "
-        "Takes 1-2 days; you get twitter-<date>.zip containing like.js, tweets.js, account.js. "
-        "Note: bookmarks are NOT in the archive, km fetch x-bookmarks scrapes those."
+        "Takes 1-2 days; you get twitter-<date>.zip. km reads the whole data/ folder, "
+        "not just tweets: tweet.js, like.js, deleted-tweets.js, note-tweet.js, "
+        "community-tweet.js, direct-messages*.js, grok-chat-item.js, follower.js, "
+        "following.js, block.js, mute.js and lists-*.js. "
+        "KEEP EVERY ARCHIVE YOU HAVE EVER DOWNLOADED and point km at all of them: an "
+        "old one holds tweets you have since deleted and accounts you have since "
+        "unfollowed. km dedupes across archives and records one occurrence per "
+        "snapshot, so nothing is lost and nothing is doubled. "
+        "Two things are NOT in the archive: bookmarks (km fetch x-bookmarks scrapes "
+        "those) and tweet/DM media, which km never ingests, so keep the zip for that."
     ),
     "Google Takeout (Chrome history)": (
         "takeout.google.com > Deselect all > select Chrome. "
@@ -55,6 +64,13 @@ _INSTRUCTIONS: dict[str, str] = {
     "Bookmarks": (
         "Chrome bookmarks are read automatically. OneTab: Export URLs to a .txt. "
         "Pocket: getpocket.com/export (ril_export.html). Instapaper: Settings > Download CSV."
+    ),
+    "Browser page captures": (
+        "Optional but the richest source there is. Extensions that export your history "
+        "WITH each page's readable text (fttf-*.json) let km search the article body "
+        "captured at the moment you read it, including pages now paywalled or dead. "
+        "Captures merge into existing visits by canonical URL, so a title-only row "
+        "becomes a searchable one."
     ),
 }
 
