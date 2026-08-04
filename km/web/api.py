@@ -843,12 +843,13 @@ def build_router(cfg: Config, get_conn) -> APIRouter:
 
     @router.get("/coverage")
     def coverage_report():
-        from km.audit import coverage
+        from km.audit import coverage, source_freshness
 
         from km.fetch_content import dead_saves
 
         report = coverage(get_conn())
         report["dead_saves"] = dead_saves(get_conn(), limit=8)
+        report["freshness"] = source_freshness(get_conn())
         return report
 
     @router.get("/episodes")

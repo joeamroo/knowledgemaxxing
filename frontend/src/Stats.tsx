@@ -210,6 +210,28 @@ function CoverageCard() {
           {data.dead_saves.length}+ saved links have gone dead (text preserved where fetched)
         </div>
       )}
+      <div className="mt-3 space-y-0.5">
+        {(data.freshness ?? []).slice(0, 8).map((f: {
+          source: string; items: number; days_stale: number | null;
+          refreshes_itself: boolean; needs_new_export: boolean;
+        }) => (
+          <div key={f.source} className="flex items-baseline gap-2 text-[11.5px]">
+            <span className="font-mono-data truncate" style={{ color: "var(--ink-dim)" }}>
+              {f.source}
+            </span>
+            <span className="font-mono-data ml-auto shrink-0"
+              title={f.refreshes_itself
+                ? "km refreshes this one on its own"
+                : "only moves when you download a new export"}
+              style={{ color: f.needs_new_export ? "#c96b5a" : "var(--ink-faint)" }}>
+              {f.days_stale === null ? "unknown"
+                : f.days_stale === 0 ? "today"
+                : `${f.days_stale}d ago`}
+              {f.needs_new_export ? " · re-export" : f.refreshes_itself ? " · auto" : ""}
+            </span>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

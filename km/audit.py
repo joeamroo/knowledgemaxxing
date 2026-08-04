@@ -11,6 +11,53 @@ from __future__ import annotations
 import sqlite3
 
 
+def source_freshness(conn: sqlite3.Connection) -> list[dict]:
+    """Per source: how long since it last produced an item.
+
+    Some sources refresh themselves (browser history, RSS, scrapers on a
+    schedule); others only move when you download a new export. This makes
+    "your ChatGPT logs stopped in March" a visible fact instead of a silent
+    hole in the archive.
+    """
+    # sources that km can refresh on its own vs. ones needing a new export
+    AUTO = {
+        "chrome_live_history", "safari_live", "apple_notes", "feed",
+        "hn", "reddit_saved", "substack_saved", "x_bookmarks",
+        "manual_note", "manual_bookmark",
+    }
+    rows = conn.execute(
+        """SELECT s.kind,
+                  count(DISTINCT i.id) items,
+                  max(o.occurred_at) last_item,
+                  max(s.ingested_at) last_ingest
+           FROM sources s
+           JOIN occurrences o ON o.source_id = s.id
+           JOIN items i ON i.id = o.item_id
+           GROUP BY s.kind ORDER BY items DESC"""
+    ).fetchall()
+    out = []
+    for r in rows:
+        stamp = r["last_item"] or r["last_ingest"]
+        days = None
+        if stamp:
+            row = conn.execute(
+                "SELECT cast(julianday('now') - julianday(?) AS INTEGER) d", (stamp,)
+            ).fetchone()
+            days = row["d"] if row and row["d"] is not None and row["d"] >= 0 else None
+        out.append({
+            "source": r["kind"],
+            "items": r["items"],
+            "last_seen": (stamp or "")[:10] or None,
+            "days_stale": days,
+            "refreshes_itself": r["kind"] in AUTO,
+            # only nag about sources you must feed by hand
+            "needs_new_export": (
+                r["kind"] not in AUTO and days is not None and days > 45
+            ),
+        })
+    return out
+
+
 def coverage(conn: sqlite3.Connection) -> dict:
     def pct(part: int, whole: int) -> float:
         return round(100.0 * part / whole, 1) if whole else 100.0

@@ -715,6 +715,16 @@ def coverage() -> None:
         console.print(f"  {k['kind']:<20} {k['total']:>8,} items · embedded {bar}")
     if report["gaps"]:
         console.print("[yellow]Gaps: run km embed to close them.[/yellow]")
+    from km.audit import source_freshness
+
+    console.print("\n[bold]Source freshness[/bold]")
+    for f in source_freshness(conn)[:12]:
+        age = "unknown" if f["days_stale"] is None else (
+            "today" if f["days_stale"] == 0 else f"{f['days_stale']}d ago")
+        tag = ("[red]re-export needed[/red]" if f["needs_new_export"]
+               else "[dim]auto[/dim]" if f["refreshes_itself"] else "")
+        console.print(f"  {f['source']:<22} {f['items']:>8,} items · last {age} {tag}")
+
     rot = dead_saves(conn, limit=10)
     if rot:
         console.print(f"\n[bold]Link rot[/bold]: {len(rot)}+ saved links are dead or unreadable:")
@@ -907,7 +917,8 @@ def ui(
 
 @app.command()
 def sync(
-    scrape: bool = typer.Option(False, "--scrape", help="Also run authenticated scrapers (opens a browser)"),
+    scrape: bool = typer.Option(False, "--scrape", help="Also pull logged-in saves (X likes/bookmarks, Reddit, Substack, HN)"),
+    headed: bool = typer.Option(False, "--headed", help="Show the scraper browser (default: headless, for unattended runs)"),
     embed_new: bool = typer.Option(True, "--embed/--no-embed", help="Embed new items after ingest"),
 ) -> None:
     """Continuous ingestion: pull fresh data from every local source, one pass.
@@ -974,9 +985,9 @@ def sync(
         from km.scrapers.base import CleanStop
         from km.scrapers.session import browser_context
 
-        console.print("[bold]km sync[/bold] · scrapers")
+        console.print("[bold]km sync[/bold] · logged-in saves (likes, bookmarks, saved posts)")
         try:
-            with browser_context(headed=True) as context:
+            with browser_context(headed=headed) as context:
                 from km.scrapers.hn import HnScraper
                 from km.scrapers.reddit_saved import RedditScraper
                 from km.scrapers.substack_saved import SubstackScraper
@@ -988,9 +999,14 @@ def sync(
                         new_items += count
                         console.print(f"  {cls.__name__}: {count} saved")
                     except CleanStop as exc:
+                        # expired session or nothing new: not a failure
                         console.print(f"  [yellow]{cls.__name__}: {exc}[/yellow]")
+                    except Exception as exc:
+                        # one broken scraper must not cost you the others
+                        console.print(f"  [yellow]{cls.__name__} failed: {str(exc)[:120]}[/yellow]")
         except Exception as exc:
             console.print(f"  [yellow]scrapers skipped: {exc}[/yellow]")
+            console.print("  [dim]if sessions expired, run km login[/dim]")
 
     # heuristics before content/embeddings: they mark the essays worth fetching
     console.print("[bold]km sync[/bold] · heuristics")
@@ -1306,21 +1322,26 @@ def task_harvest() -> None:
 @app.command(name="sync-schedule")
 def sync_schedule(
     hours: int = typer.Option(12, "--hours", help="Run every N hours"),
+    scrape: bool = typer.Option(
+        True, "--scrape/--no-scrape",
+        help="Also pull logged-in saves (X likes/bookmarks, Reddit, Substack, HN) headlessly"),
 ) -> None:
-    """Install a launchd job that runs km sync on a schedule. The archive
-    keeps itself current: Chrome history, new exports, Apple Notes, embeddings."""
+    """Install a launchd job that runs km sync on a schedule, so the archive
+    keeps itself current: browser history, new exports on disk, Apple Notes,
+    RSS, your logged-in saves, article text, and embeddings."""
     import subprocess
     from pathlib import Path as P
 
     cfg = _cfg()
     plist_path = P.home() / "Library/LaunchAgents/com.km.sync.plist"
     km_bin = cfg.project_root / ".venv" / "bin" / "km"
+    scrape_arg = "<string>--scrape</string>" if scrape else ""
     plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.km.sync</string>
   <key>ProgramArguments</key>
-  <array><string>{km_bin}</string><string>sync</string></array>
+  <array><string>{km_bin}</string><string>sync</string>{scrape_arg}</array>
   <key>WorkingDirectory</key><string>{cfg.project_root}</string>
   <key>StartInterval</key><integer>{hours * 3600}</integer>
   <key>StandardOutPath</key><string>/tmp/km-sync.log</string>
@@ -1332,7 +1353,14 @@ def sync_schedule(
     subprocess.run(["launchctl", "unload", str(plist_path)], capture_output=True)
     result = subprocess.run(["launchctl", "load", str(plist_path)], capture_output=True, text=True)
     if result.returncode == 0:
+        what = "history, exports, notes, RSS, article text, embeddings"
+        if scrape:
+            what += ", plus logged-in saves (X, Reddit, Substack, HN)"
         console.print(f"[green]Installed:[/green] km sync every {hours}h ({plist_path})")
+        console.print(f"  pulls: {what}")
+        if scrape:
+            console.print("  [dim]scrapers run headless against your saved sessions; "
+                          "if they expire, run km login[/dim]")
         console.print("Log: /tmp/km-sync.log · remove with: launchctl unload " + str(plist_path))
     else:
         console.print(f"[red]launchctl load failed:[/red] {result.stderr}")

@@ -169,12 +169,14 @@ body::after {
 .btn-accent:disabled { opacity: 0.5; }
 
 /* rows */
+/* No content-visibility here: it implies layout containment, and a contained
+   <tr> stops contributing to the table's column-width algorithm. Columns then
+   re-measure as rows render and unrender, which shows up as text jumping
+   sideways when you click a row. Correct columns beat the small perf win. */
 .row-item {
   border-bottom: 1px solid var(--line);
   position: relative;
   transition: background 100ms ease;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 44px;
 }
 .row-item:hover, .row-item.focused { background: var(--accent-soft); }
 .row-item.focused::before {
