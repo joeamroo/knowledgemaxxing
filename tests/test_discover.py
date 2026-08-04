@@ -27,6 +27,15 @@ def test_classify_name_patterns():
     assert classify_name("random.pdf") is None
 
 
+def test_classify_my_activity_with_a_space():
+    """Takeout ships this file both ways. Missing the spaced form silently
+    skipped two real exports, so both spellings are pinned here."""
+    assert classify_name("Takeout/My Activity/Search/My Activity.json") == "my_activity"
+    assert classify_name("Takeout/My Activity/Search/My Activity.html") == "my_activity_html"
+    assert classify_name("Takeout/My Activity/Search/MyActivity.json") == "my_activity"
+    assert classify_name("Takeout/My Activity/Search/MyActivity.html") == "my_activity_html"
+
+
 def test_sniff_csv_header_urlish():
     stype, header = sniff_csv_header("url,title,visit_time\nhttps://a.com,A,123\n")
     assert stype == "chrome_export"

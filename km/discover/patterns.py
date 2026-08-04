@@ -26,8 +26,11 @@ _NAME_RULES: list[tuple[str, str]] = [
     ("account.js", "twitter_archive"),
     ("takeout-*.zip", "takeout_zip"),
     ("browserhistory.json", "takeout_browser"),
-    ("myactivity.json", "my_activity"),
-    ("myactivity.html", "my_activity_html"),
+    # Takeout has shipped this file as both "MyActivity.json" and
+    # "My Activity.json" (with a space) depending on when the export ran,
+    # so match either. Two exports were silently skipped before this.
+    ("my*activity.json", "my_activity"),
+    ("my*activity.html", "my_activity_html"),
     ("fttf-*.json", "page_capture"),
     ("conversations.json", "chat_export"),
     ("conversations-*.json", "chat_export"),  # ChatGPT split exports
