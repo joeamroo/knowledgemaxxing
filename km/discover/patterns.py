@@ -28,6 +28,7 @@ _NAME_RULES: list[tuple[str, str]] = [
     ("browserhistory.json", "takeout_browser"),
     ("myactivity.json", "my_activity"),
     ("myactivity.html", "my_activity_html"),
+    ("fttf-*.json", "page_capture"),
     ("conversations.json", "chat_export"),
     ("conversations-*.json", "chat_export"),  # ChatGPT split exports
     ("bookmarks_*.html", "bookmarks_html"),
@@ -49,6 +50,32 @@ _NAME_RULES: list[tuple[str, str]] = [
     ("history.json", "chrome_export"),
 ]
 
+# Twitter archive members whose basenames also occur in ordinary code trees
+# (node_modules ships block.js, following.js, and friends). Archives always
+# put these under data/, so only match when that parent is present.
+_DATA_DIR_RULES: list[tuple[str, str]] = [
+    ("follower.js", "twitter_archive"),
+    ("follower-part*.js", "twitter_archive"),
+    ("following.js", "twitter_archive"),
+    ("following-part*.js", "twitter_archive"),
+    ("block.js", "twitter_archive"),
+    ("mute.js", "twitter_archive"),
+    ("deleted-tweets.js", "twitter_archive"),
+    ("deleted-tweets-part*.js", "twitter_archive"),
+    ("note-tweet.js", "twitter_archive"),
+    ("note-tweet-part*.js", "twitter_archive"),
+    ("community-tweet.js", "twitter_archive"),
+    ("community-tweet-part*.js", "twitter_archive"),
+    ("direct-messages.js", "twitter_archive"),
+    ("direct-messages-part*.js", "twitter_archive"),
+    ("direct-messages-group.js", "twitter_archive"),
+    ("direct-messages-group-part*.js", "twitter_archive"),
+    ("grok-chat-item.js", "twitter_archive"),
+    ("grok-chat-item-part*.js", "twitter_archive"),
+    ("lists-subscribed.js", "twitter_archive"),
+    ("lists-member.js", "twitter_archive"),
+]
+
 _URLISH_COLS = {"url", "href", "link", "uri", "address", "page address"}
 _TITLEISH_COLS = {"title", "name", "page", "page title"}
 _TIMEISH_HINTS = ("date", "time", "visit", "epoch")
@@ -57,11 +84,21 @@ URL_RE = re.compile(r"https?://[^\s\"'<>|)\]]+")
 
 
 def classify_name(name: str) -> Optional[str]:
-    """Map a filename to a source type, or None if not name-identifiable."""
-    low = Path(name).name.lower()
+    """Map a filename to a source type, or None if not name-identifiable.
+
+    Pass the fullest path you have (a zip member like "data/block.js" or an
+    absolute path): some archive members are only identifiable by their
+    data/ parent, since their basenames are common in code trees.
+    """
+    path = Path(name)
+    low = path.name.lower()
     for pattern, source_type in _NAME_RULES:
         if fnmatch.fnmatch(low, pattern):
             return source_type
+    if path.parent.name.lower() == "data":
+        for pattern, source_type in _DATA_DIR_RULES:
+            if fnmatch.fnmatch(low, pattern):
+                return source_type
     return None
 
 

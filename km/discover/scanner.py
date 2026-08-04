@@ -80,7 +80,7 @@ def scan_zip(path: Path) -> list[ManifestEntry]:
             for info in zf.infolist():
                 if info.is_dir():
                     continue
-                member_type = classify_name(Path(info.filename).name)
+                member_type = classify_name(info.filename)
                 if member_type in (None, "twitter_archive_zip", "takeout_zip"):
                     continue
                 entries.append(
@@ -101,7 +101,7 @@ def classify_path(path: Path) -> Optional[ManifestEntry]:
     name = path.name
     if name == "Bookmarks" and path.parent.parent == _CHROME_DIR:
         return _entry(path, "chrome_bookmarks", note=f"profile: {path.parent.name}")
-    source_type = classify_name(name)
+    source_type = classify_name(str(path))
     if source_type in ("twitter_archive_zip", "takeout_zip"):
         return _entry(path, source_type)
     if source_type:

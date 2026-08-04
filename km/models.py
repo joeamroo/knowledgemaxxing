@@ -24,6 +24,15 @@ ItemKind = Literal[
     "note",
     "linked",
     "feed_post",
+    # direct messages (X archive; local-only, never leaves the machine)
+    "dm",
+    # social graph snapshots: one item per account per relation, with an
+    # occurrence per archive that still listed them
+    "x_follower",
+    "x_following",
+    "x_blocked",
+    "x_muted",
+    "x_list",
 ]
 
 

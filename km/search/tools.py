@@ -385,6 +385,61 @@ def find_episodes(
     return out
 
 
+def social_graph_changes(
+    conn: sqlite3.Connection,
+    relation: str = "following",
+    limit: int = 50,
+) -> dict:
+    """What changed in your X social graph between archive snapshots.
+
+    Each archive is a snapshot; an account seen in an older export but not
+    the newest one is someone you unfollowed (or who unfollowed you, for
+    followers). Only possible because every archive gets ingested and every
+    snapshot leaves an occurrence.
+    """
+    kind = {
+        "following": "x_following", "follower": "x_follower",
+        "blocked": "x_blocked", "muted": "x_muted",
+    }.get(relation)
+    if not kind:
+        return {"error": "relation must be following, follower, blocked, or muted"}
+
+    newest = conn.execute(
+        """SELECT max(o.occurred_at) d FROM occurrences o
+           JOIN items i ON i.id = o.item_id WHERE i.kind = ?""",
+        (kind,),
+    ).fetchone()["d"]
+    if not newest:
+        return {"error": f"no {relation} snapshots ingested yet"}
+
+    rows = conn.execute(
+        """SELECT i.id, i.url, i.raw_json,
+                  min(o.occurred_at) first_seen, max(o.occurred_at) last_seen,
+                  count(DISTINCT o.occurred_at) snapshots
+           FROM items i JOIN occurrences o ON o.item_id = i.id
+           WHERE i.kind = ? GROUP BY i.id""",
+        (kind,),
+    ).fetchall()
+
+    current, gone = [], []
+    for r in rows:
+        entry = {
+            "id": r["id"], "url": r["url"],
+            "first_seen": (r["first_seen"] or "")[:10],
+            "last_seen": (r["last_seen"] or "")[:10],
+        }
+        (current if r["last_seen"] == newest else gone).append(entry)
+    gone.sort(key=lambda e: e["last_seen"], reverse=True)
+    return {
+        "relation": relation,
+        "newest_snapshot": newest[:10],
+        "current": len(current),
+        "gone_since": len(gone),
+        "gone": gone[:limit],
+        "note": "gone = present in an older archive but absent from the newest one",
+    }
+
+
 def archive_stats(conn: sqlite3.Connection) -> dict:
     """Scale and shape of the archive: totals, sources, kinds, top domains."""
     from km.store import stats as get_stats
@@ -601,7 +656,8 @@ def fetch_page(cfg, conn: sqlite3.Connection, id: int) -> dict:
 READ_TOOLS = {
     "search_archive", "deep_search", "map_topics", "get_item", "get_items",
     "get_chat_messages", "list_items", "period_summary", "find_episodes",
-    "archive_stats", "similar_items", "get_tasks", "get_reading_feed",
+    "social_graph_changes", "archive_stats", "similar_items", "get_tasks",
+    "get_reading_feed",
 }
 
 
@@ -627,6 +683,8 @@ def run_tool(name: str, conn: sqlite3.Connection, cfg, embedder, args: dict):
         return period_summary(conn, **args)
     if name == "find_episodes":
         return find_episodes(conn, **args)
+    if name == "social_graph_changes":
+        return social_graph_changes(conn, **args)
     if name == "list_items":
         return list_items(conn, **args)
     if name == "archive_stats":

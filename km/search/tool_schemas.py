@@ -142,6 +142,23 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "social_graph_changes",
+        "description": (
+            "How the user's X social graph changed between archive "
+            "snapshots: who they follow now versus accounts present in an "
+            "older export but missing from the newest (unfollowed, or "
+            "accounts that unfollowed them). relation: following | "
+            "follower | blocked | muted."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "relation": {"type": "string", "description": "following (default), follower, blocked, muted"},
+                "limit": {"type": "integer", "description": "Max departed accounts to list (default 50)"},
+            },
+        },
+    },
+    {
         "name": "get_chat_messages",
         "description": (
             "Structured messages of one AI chat conversation (ChatGPT/Claude "

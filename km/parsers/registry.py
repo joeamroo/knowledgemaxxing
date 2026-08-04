@@ -16,6 +16,7 @@ from km.parsers import (
     chat_claude,
     chrome_export_flex,
     my_activity,
+    page_capture,
     reddit_gdpr,
     takeout_browser,
     twitter_archive,
@@ -82,5 +83,6 @@ PARSERS: dict[str, ParserFn] = {
     "onetab": bookmarks.parse_onetab,
     "reddit_gdpr": reddit_gdpr.parse,
     "grok_export": parse_grok,
+    "page_capture": page_capture.parse,
 }
 # chrome_live_history is path-based (SQLite): handled specially in ingest.
